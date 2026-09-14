@@ -13,6 +13,7 @@ from typing import Optional, List
 import asyncio
 import json
 import numpy as np
+import os
 from datetime import datetime
 from pathlib import Path
 import logging
@@ -410,7 +411,9 @@ async def acquisition_loop():
 
 BACKEND_DIR  = Path(__file__).parent
 FRONTEND_DIR = BACKEND_DIR.parent / "frontend"
-DATA_DIR     = BACKEND_DIR.parent / "data"   # carpeta de datos por defecto (montar como volumen)
+# /data es el punto de montaje del volumen Docker (ver Dockerfile/docker-compose.yml)
+# y también el save_path por defecto que ofrece el frontend.
+DATA_DIR     = Path(os.environ.get("DATA_DIR", "/data"))
 
 @app.get("/api/info")
 async def get_info():
