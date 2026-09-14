@@ -127,7 +127,6 @@ docker compose down
 | POST | `/api/start` | Iniciar adquisición |
 | POST | `/api/stop` | Detener adquisición |
 | POST | `/api/save` | Guardar el buffer de espectros adquiridos |
-| POST | `/api/spectrometer/auto_expose` | Ajustar automáticamente el tiempo de integración |
 | POST | `/api/spectrometer/reconnect` | Reintentar conexión USB con el espectrómetro |
 | GET | `/api/viewer/folders` | Carpetas de datos disponibles |
 | GET | `/api/viewer/files` | Archivos guardados en una carpeta |

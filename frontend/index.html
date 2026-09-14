@@ -33,10 +33,7 @@
   .button.danger { background: #f44336; color: white; border-color: #9a0007; }
   .button:disabled { opacity: 0.5; cursor: not-allowed; }
   .status { font-size: 17px; background: white; border-radius: 4px; padding: 14px; margin-top: 10px; }
-  .status div { display: flex; justify-content: space-between; padding: 5px 0; }
-  .dot { display: inline-block; width: 13px; height: 13px; border-radius: 50%; margin-right: 8px; }
-  .dot.ok { background: #4CAF50; }
-  .dot.bad { background: #f44336; }
+  .status div { display: flex; justify-content: flex-start; align-items: center; gap: 10px; padding: 5px 0; }
   .pill {
     padding: 2px 10px; border-radius: 12px; font-weight: bold; color: white;
   }
@@ -110,7 +107,6 @@
     <button class="button" id="btn-save">SAVE</button>
 
     <h2>Espectrómetro</h2>
-    <button class="button" id="btn-autoexpose">Auto-exposición</button>
     <button class="button" id="btn-reconnect">Reconectar</button>
 
     <a class="btn-viewer" href="viewer.html">📁 Ver espectros guardados</a>
@@ -183,16 +179,18 @@ function drawPlot() {
 function renderStatus() {
   if (!lastStatus) { statusEl.innerHTML = 'Cargando estado...'; return; }
   const s = lastStatus;
-  const dot = s.spectrometer_connected ? '<span class="dot ok"></span>' : '<span class="dot bad"></span>';
+  const connPill = s.spectrometer_connected
+    ? `<span class="pill run-on">Conectado</span>`
+    : `<span class="pill run-off">Desconectado</span>`;
   const runPill = s.is_running
     ? `<span class="pill run-on">Corriendo${s.current_mode ? ' (' + s.current_mode + ')' : ''}</span>`
     : `<span class="pill run-off">Detenida</span>`;
   statusEl.innerHTML = `
-    <div><span>${dot}Espectrómetro</span><span>${s.spectrometer_connected ? 'Conectado' : 'Desconectado'}</span></div>
-    <div><span>Adquisición</span>${runPill}</div>
-    <div><span>Espectros</span><span>${s.spectrum_count}</span></div>
-    ${lastSpectrum ? `<div><span>Pico</span><span>${lastSpectrum.peak_counts} cnt (${lastSpectrum.sat_pct}%)</span></div>` : ''}
-    ${s.last_error ? `<div><span>Error</span><span>${s.last_error}</span></div>` : ''}
+    <div><span><b>Espectrómetro</b></span>${connPill}</div>
+    <div><span><b>Adquisición</b></span>${runPill}</div>
+    <div><span><b>Espectros</b></span><span>${s.spectrum_count}</span></div>
+    ${lastSpectrum ? `<div><span><b>Pico</b></span><span>${lastSpectrum.peak_counts} cnt (${lastSpectrum.sat_pct}%)</span></div>` : ''}
+    ${s.last_error ? `<div><span><b>Error</b></span><span>${s.last_error}</span></div>` : ''}
   `;
 }
 
@@ -250,17 +248,6 @@ $('btn-stop').onclick = async () => {
 $('btn-save').onclick = async () => {
   const r = await api('/api/save', { method: 'POST' });
   msgEl.textContent = r.message || JSON.stringify(r);
-};
-
-$('btn-autoexpose').onclick = async () => {
-  msgEl.textContent = 'Auto-exponiendo...';
-  const r = await api('/api/spectrometer/auto_expose', { method: 'POST' });
-  if (r.status === 'ok') {
-    $('ti_ms').value = r.t_exp_ms;
-    msgEl.textContent = `Ti ajustado a ${r.t_exp_ms} ms (sat ${r.sat_pct}%)`;
-  } else {
-    msgEl.textContent = r.message || JSON.stringify(r);
-  }
 };
 
 $('btn-reconnect').onclick = async () => {

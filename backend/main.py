@@ -267,58 +267,6 @@ def _write_file(buf: list, start_time: datetime) -> dict:
     return {"status": "ok", "message": msg, "path": str(out_file)}
 
 
-@app.post("/api/spectrometer/auto_expose")
-async def auto_expose():
-    """Ajusta t_exp iterativamente para que el pico llegue al 75% de Q_MAX."""
-    if state.is_running:
-        return {"status": "error", "message": "Detener la adquisición antes de auto-exponer"}
-    if not state.spectrometer or not state.spectrometer.is_connected:
-        return {"status": "error", "message": "Espectrómetro no conectado"}
-
-    TARGET       = 0.75 * Q_MAX
-    T_MIN, T_MAX = 1.0, 25_000.0
-
-    try:
-        t_exp = float(state.spectrometer.measconfig.m_IntegrationTime)
-        iters = []
-
-        for it in range(6):
-            await asyncio.to_thread(state.spectrometer.set_integration_time, t_exp)
-            _, sp = await asyncio.to_thread(state.spectrometer.get_spectrum, 1, 1)
-            peak  = float(max(sp))
-            t_new = max(T_MIN, min(T_MAX, t_exp * TARGET / max(peak, 1.0)))
-
-            entry = {"iter": it + 1, "t_ms": round(t_exp, 1),
-                     "peak": int(peak), "t_new": round(t_new, 1),
-                     "sat_pct": round(peak / Q_MAX * 100, 1)}
-            iters.append(entry)
-            logger.info(f"auto_expose iter {it+1}: t={t_exp:.0f}ms peak={int(peak)} "
-                        f"sat={entry['sat_pct']}% → t_new={t_new:.0f}ms")
-
-            if abs(t_new - t_exp) / max(t_exp, 1e-9) < 0.03:
-                t_exp = t_new
-                break
-            t_exp = t_new
-
-        await asyncio.to_thread(state.spectrometer.set_integration_time, t_exp)
-        if state.config:
-            state.config.spec_params.ti_ms = t_exp
-        _, sp_final = await asyncio.to_thread(state.spectrometer.get_spectrum, 1, 1)
-        final_peak = int(max(sp_final))
-        final_sat  = round(final_peak / Q_MAX * 100, 1)
-
-        return {
-            "status":      "ok",
-            "t_exp_ms":    round(t_exp, 1),
-            "peak_counts": final_peak,
-            "sat_pct":     final_sat,
-            "iterations":  iters,
-        }
-    except Exception as e:
-        logger.error(f"auto_expose error: {e}")
-        return {"status": "error", "message": str(e)}
-
-
 @app.post("/api/spectrometer/reconnect")
 async def spectrometer_reconnect():
     if state.is_running:
