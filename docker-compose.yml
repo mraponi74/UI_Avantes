@@ -1,7 +1,7 @@
 services:
   avantes-ui:
     build: .
-    image: avantes-spectrometer-ui:latest
+    image: mraponi74/ui-avantes:latest
     container_name: avantes-spectrometer-ui
     restart: unless-stopped
     ports:

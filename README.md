@@ -74,6 +74,10 @@ levanta el contenedor con:
   guardan los espectros.
 - El bus USB del host mapeado al contenedor.
 
+También se puede usar la imagen publicada en Docker Hub sin buildear
+localmente — `docker-compose.yml` ya apunta a `mraponi74/ui-avantes:latest`,
+así que `docker compose up -d` (sin `--build`) la descarga y levanta directo.
+
 ### 2. Abrir el frontend
 
 ```
@@ -141,6 +145,14 @@ Un archivo de texto por adquisición, en `/data/<YYYY-MM-DD>/spec_<muestra>_<fec
 wl      spec_1      spec_2      ...
 285.12  1234.00     1245.00     ...
 ...
+```
+
+## 🐳 Publicar la imagen en Docker Hub
+
+```bash
+docker login
+docker build -t mraponi74/ui-avantes:latest .
+docker push mraponi74/ui-avantes:latest
 ```
 
 ## 🛠️ Desarrollo local (sin Docker)
