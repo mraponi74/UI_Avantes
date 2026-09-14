@@ -1,38 +1,41 @@
 """
-Control del espectrómetro Avantes vía USB (libavs.so / AvaSpec SDK).
-Sólo adquisición de espectros — sin motor, sin shutter, sin GPIO.
+Avantes spectrometer control over USB (libavs.so / AvaSpec SDK).
+Acquisition only — no motor, no shutter, no GPIO.
 """
 
+import os
 import time
 import threading
 import numpy as np
 import logging
-from typing import Tuple
+from pathlib import Path
+from typing import Optional, Tuple
 
 from avaspec import (
     AVS_Init, AVS_GetList, AVS_Activate, AVS_UseHighResAdc,
     AVS_PrepareMeasure, AVS_Measure, AVS_PollScan, AVS_GetScopeData,
     AVS_StopMeasure, AVS_Deactivate, AVS_Done, MeasConfigType,
 )
+from calibration import CalibrationStore
 
 logger = logging.getLogger(__name__)
 
+# Persisted in the /data volume so calibrations survive container recreation.
+CALIB_PATH = Path(os.environ.get("CALIB_PATH", "/data/calibrations.json"))
+_calib_store = CalibrationStore(CALIB_PATH)
+
+NUM_PIXELS = 2048
+
 
 class SpectrometerController:
-    """Controlador del espectrómetro Avantes"""
+    """Avantes spectrometer controller"""
 
-    RECONNECT_INTERVAL_S = 10   # segundos entre intentos de auto-reconexión
-    CONNECT_RETRIES      = 5    # intentos al inicio antes de lanzar thread
+    RECONNECT_INTERVAL_S = 10   # seconds between auto-reconnect attempts
+    CONNECT_RETRIES      = 5    # attempts on startup before spawning the retry thread
 
-    # Calibración de longitud de onda (polinomio propio del instrumento)
-    _WL_INTERCEPT = 2.800967184e2
-    _WL_C1 =  1.429352953e-1
-    _WL_C2 = -5.392709165e-6
-    _WL_C3 = -6.309091154e-10
-
-    # Recorte del rango espectral útil (elimina artefactos de borde del filtro)
-    WAVE_MIN = 285.0   # nm
-    WAVE_MAX = 540.0   # nm
+    # Fallback crop range used until a real calibration is known (full pixel range).
+    DEFAULT_WAVE_MIN = 0.0
+    DEFAULT_WAVE_MAX = float(NUM_PIXELS - 1)
 
     def __init__(self):
         self.dev_handle = None
@@ -41,10 +44,11 @@ class SpectrometerController:
         self._stop_reconnect = threading.Event()
         self._reconnect_thread = None
 
-        self.wavelengths = np.array([
-            self._WL_INTERCEPT + self._WL_C1 * i + self._WL_C2 * i**2 + self._WL_C3 * i**3
-            for i in range(2048)
-        ])
+        self.serial_number: Optional[str] = None
+        self.needs_calibration = False
+        self.wavelengths = np.arange(NUM_PIXELS, dtype=float)
+        self.WAVE_MIN = self.DEFAULT_WAVE_MIN
+        self.WAVE_MAX = self.DEFAULT_WAVE_MAX
 
         self._connect()
         if not self.is_connected:
@@ -56,7 +60,7 @@ class SpectrometerController:
             target=self._reconnect_loop, daemon=True, name="spec-reconnect"
         )
         self._reconnect_thread.start()
-        logger.info(f"Auto-reconexión activa: reintento cada {self.RECONNECT_INTERVAL_S}s")
+        logger.info(f"Auto-reconnect active: retrying every {self.RECONNECT_INTERVAL_S}s")
 
     def _reconnect_loop(self):
         while not self._stop_reconnect.is_set():
@@ -64,47 +68,68 @@ class SpectrometerController:
             if self._stop_reconnect.is_set():
                 break
             if not self.is_connected:
-                logger.info("Auto-reconexión: intentando conectar espectrómetro...")
+                logger.info("Auto-reconnect: trying to connect spectrometer...")
                 self._connect()
                 if self.is_connected:
-                    logger.info("Auto-reconexión exitosa")
+                    logger.info("Auto-reconnect successful")
                     break
 
+    def _apply_calibration(self, calib: dict):
+        c0 = calib["c0"]; c1 = calib["c1"]; c2 = calib["c2"]; c3 = calib["c3"]
+        self.wavelengths = np.array([
+            c0 + c1 * i + c2 * i**2 + c3 * i**3 for i in range(NUM_PIXELS)
+        ])
+        self.WAVE_MIN = calib.get("wave_min", float(self.wavelengths.min()))
+        self.WAVE_MAX = calib.get("wave_max", float(self.wavelengths.max()))
+
+    def set_calibration(self, calib: dict):
+        """Saves and immediately applies a wavelength calibration for the
+        currently connected spectrometer's serial number."""
+        if not self.serial_number:
+            raise RuntimeError("No spectrometer connected")
+        _calib_store.set(self.serial_number, calib)
+        self._apply_calibration(calib)
+        self.needs_calibration = False
+        logger.info(f"Calibration applied for serial {self.serial_number}")
+
     def _connect(self):
-        # Limpiar estado anterior del SDK
+        # Clear previous SDK state
         try:
             AVS_Done()
         except Exception:
             pass
         time.sleep(0.5)
 
-        # Reintentar AVS_Init hasta CONNECT_RETRIES veces
+        # Retry AVS_Init up to CONNECT_RETRIES times
         n = 0
         for attempt in range(self.CONNECT_RETRIES):
             try:
                 n = AVS_Init(0)
             except Exception as e:
-                logger.warning(f"AVS_Init excepción intento {attempt+1}: {e}")
+                logger.warning(f"AVS_Init exception on attempt {attempt+1}: {e}")
                 n = 0
             if n > 0:
                 break
             if attempt < self.CONNECT_RETRIES - 1:
-                logger.warning(f"AVS_Init={n}, reintentando ({attempt+1}/{self.CONNECT_RETRIES})...")
+                logger.warning(f"AVS_Init={n}, retrying ({attempt+1}/{self.CONNECT_RETRIES})...")
                 time.sleep(2.0)
 
-        logger.info(f"--> Detectó {n} espectrómetro(s)")
+        logger.info(f"--> Detected {n} spectrometer(s)")
         if n <= 0:
-            logger.error("--> No se detectó espectrómetro")
+            logger.error("--> No spectrometer detected")
             return
 
         try:
             _, ids = AVS_GetList()
+            serial = ids[0].SerialNumber
+            self.serial_number = (serial.decode("ascii", errors="ignore") if isinstance(serial, bytes) else str(serial)).strip()
+
             self.dev_handle = AVS_Activate(ids[0])
             AVS_UseHighResAdc(self.dev_handle, True)
 
             self.measconfig = MeasConfigType()
             self.measconfig.m_StartPixel              = 0
-            self.measconfig.m_StopPixel               = 2047
+            self.measconfig.m_StopPixel               = NUM_PIXELS - 1
             self.measconfig.m_IntegrationTime         = 100.0
             self.measconfig.m_IntegrationDelay        = 0
             self.measconfig.m_NrAverages              = 1
@@ -124,22 +149,37 @@ class SpectrometerController:
 
             AVS_PrepareMeasure(self.dev_handle, self.measconfig)
             self.is_connected = True
-            logger.info("Espectrómetro conectado y configurado")
+            logger.info(f"Spectrometer connected and configured (serial {self.serial_number})")
+
+            calib = _calib_store.get(self.serial_number)
+            if calib:
+                self._apply_calibration(calib)
+                self.needs_calibration = False
+                logger.info(f"Loaded known calibration for serial {self.serial_number}")
+            else:
+                self.needs_calibration = True
+                self.wavelengths = np.arange(NUM_PIXELS, dtype=float)
+                self.WAVE_MIN = self.DEFAULT_WAVE_MIN
+                self.WAVE_MAX = self.DEFAULT_WAVE_MAX
+                logger.warning(
+                    f"No calibration known for serial {self.serial_number} — "
+                    f"showing raw pixel index until calibration data is entered"
+                )
 
         except Exception as e:
-            logger.error(f"Error conectando espectrómetro: {e}")
+            logger.error(f"Error connecting spectrometer: {e}")
 
     def set_integration_time(self, time_ms: float):
         if not self.is_connected:
-            logger.warning("Espectrómetro no conectado")
+            logger.warning("Spectrometer not connected")
             return
         self.measconfig.m_IntegrationTime = float(time_ms)
         AVS_StopMeasure(self.dev_handle)
         ret = AVS_PrepareMeasure(self.dev_handle, self.measconfig)
         if ret != 0:
-            logger.error(f"Error en AVS_PrepareMeasure: {ret}")
+            logger.error(f"Error in AVS_PrepareMeasure: {ret}")
         else:
-            logger.info(f"--> Tiempo de integración: {time_ms} ms")
+            logger.info(f"--> Integration time: {time_ms} ms")
 
     def _crop(self, wl: np.ndarray, spec: np.ndarray):
         mask = (wl >= self.WAVE_MIN) & (wl <= self.WAVE_MAX)
@@ -147,8 +187,8 @@ class SpectrometerController:
 
     def get_spectrum(self, num_avg: int = 1, filter_size: int = 1) -> Tuple[np.ndarray, np.ndarray]:
         if not self.is_connected:
-            logger.warning("Espectrómetro no conectado. Simulando salida")
-            return self._crop(self.wavelengths, np.random.rand(2048) * 1000 + 500)
+            logger.warning("Spectrometer not connected. Simulating output")
+            return self._crop(self.wavelengths, np.random.rand(NUM_PIXELS) * 1000 + 500)
 
         try:
             acum = []
@@ -158,11 +198,11 @@ class SpectrometerController:
                 while not AVS_PollScan(self.dev_handle):
                     time.sleep(0.001)
                     if time.time() > deadline:
-                        logger.error("AVS_PollScan timeout — SDK colgado, abortando")
+                        logger.error("AVS_PollScan timeout — SDK hung, aborting")
                         AVS_StopMeasure(self.dev_handle)
-                        return self.wavelengths, np.zeros(2048)
+                        return self.wavelengths, np.zeros(NUM_PIXELS)
                 _, spec = AVS_GetScopeData(self.dev_handle)
-                acum.append(spec[:2048])
+                acum.append(spec[:NUM_PIXELS])
 
             avg_spectrum = np.mean(acum, axis=0)
 
@@ -173,13 +213,13 @@ class SpectrometerController:
             return self._crop(self.wavelengths, avg_spectrum)
 
         except Exception as e:
-            logger.error(f"Error adquiriendo espectro: {e}")
-            return self._crop(self.wavelengths, np.zeros(2048))
+            logger.error(f"Error acquiring spectrum: {e}")
+            return self._crop(self.wavelengths, np.zeros(NUM_PIXELS))
 
     def reconnect(self):
-        """Desconecta limpiamente y vuelve a conectar. Llamar con asyncio.to_thread."""
-        logger.info("Reconectando espectrómetro...")
-        self._stop_reconnect.set()   # detener thread de auto-reconexión si está corriendo
+        """Cleanly disconnects and reconnects. Call via asyncio.to_thread."""
+        logger.info("Reconnecting spectrometer...")
+        self._stop_reconnect.set()   # stop the auto-reconnect thread if running
         self.disconnect()
         time.sleep(1.0)
         self._connect()
@@ -203,7 +243,7 @@ class SpectrometerController:
             pass
         self.dev_handle = None
         self.is_connected = False
-        logger.info("Espectrómetro desconectado")
+        logger.info("Spectrometer disconnected")
 
     def __del__(self):
         self.disconnect()

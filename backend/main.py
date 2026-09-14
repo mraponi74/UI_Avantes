@@ -77,10 +77,21 @@ class SystemConfig(BaseModel):
 
 class SystemStatus(BaseModel):
     is_running: bool
+    is_recording: bool
     current_mode: Optional[str]
     spectrometer_connected: bool
+    spectrometer_serial: Optional[str]
+    needs_calibration: bool
     last_error: Optional[str]
-    spectrum_count: int
+    buffer_count: int   # espectros grabados, pendientes de guardar
+
+class CalibrationInput(BaseModel):
+    c0: float   # intercept (nm)
+    c1: float   # linear term (nm/px)
+    c2: float   # quadratic term
+    c3: float   # cubic term
+    wave_min: Optional[float] = None   # crop range (nm); omit to keep full range
+    wave_max: Optional[float] = None
 
 
 # =============================================================================
@@ -90,13 +101,14 @@ class SystemStatus(BaseModel):
 class GlobalState:
     def __init__(self):
         self.is_running       = False
+        self.is_recording     = False   # si True, los espectros adquiridos se acumulan para guardar
         self.current_mode     = None
         self.config: Optional[SystemConfig] = None
         self.active_websockets: List[WebSocket] = []
         self.spectrum_count   = 0
         self.last_error       = None
         self.acquisition_task: Optional[asyncio.Task] = None
-        self.spectra_buffer: list = []   # espectros de la adquisición actual
+        self.spectra_buffer: list = []   # espectros acumulados durante la grabación actual
         self.acquisition_start_time: Optional[datetime] = None
 
         self.spectrometer = None   # se asigna en lifespan startup
@@ -112,16 +124,16 @@ state = GlobalState()
 async def lifespan(app: FastAPI):
     try:
         state.spectrometer = SpectrometerController()
-        logger.info("Espectrómetro inicializado")
+        logger.info("Spectrometer initialized")
     except Exception as e:
-        logger.error(f"Error inicializando espectrómetro: {e}")
+        logger.error(f"Error initializing spectrometer: {e}")
 
     yield
 
     try:
         state.spectrometer.disconnect()
     except Exception as e:
-        logger.error(f"Error desconectando espectrómetro: {e}")
+        logger.error(f"Error disconnecting spectrometer: {e}")
 
 
 # =============================================================================
@@ -147,49 +159,84 @@ app.add_middleware(
 async def get_status() -> SystemStatus:
     return SystemStatus(
         is_running=state.is_running,
+        is_recording=state.is_recording,
         current_mode=state.current_mode,
         spectrometer_connected=state.spectrometer.is_connected if state.spectrometer else False,
+        spectrometer_serial=state.spectrometer.serial_number if state.spectrometer else None,
+        needs_calibration=state.spectrometer.needs_calibration if state.spectrometer else False,
         last_error=state.last_error,
-        spectrum_count=state.spectrum_count,
+        buffer_count=len(state.spectra_buffer),
     )
+
+@app.get("/api/spectrometer/calibration")
+async def get_calibration():
+    if not state.spectrometer:
+        return {"connected": False}
+    return {
+        "connected": state.spectrometer.is_connected,
+        "serial": state.spectrometer.serial_number,
+        "needs_calibration": state.spectrometer.needs_calibration,
+        "wave_min": state.spectrometer.WAVE_MIN,
+        "wave_max": state.spectrometer.WAVE_MAX,
+    }
+
+@app.post("/api/spectrometer/calibration")
+async def set_calibration(calib: CalibrationInput):
+    if not state.spectrometer or not state.spectrometer.is_connected:
+        return {"status": "error", "message": "No spectrometer connected"}
+    try:
+        data = calib.model_dump(exclude_none=True)
+        state.spectrometer.set_calibration(data)
+        return {
+            "status": "ok",
+            "message": f"Calibration saved for serial {state.spectrometer.serial_number}",
+            "wave_min": state.spectrometer.WAVE_MIN,
+            "wave_max": state.spectrometer.WAVE_MAX,
+        }
+    except Exception as e:
+        logger.error(f"Error saving calibration: {e}")
+        return {"status": "error", "message": str(e)}
 
 @app.post("/api/config")
 async def set_config(config: SystemConfig):
     if state.is_running:
-        return {"status": "error", "message": "No se puede cambiar la configuración mientras corre la adquisición"}
+        msg = "Cannot change configuration while acquisition is running"
+        logger.warning(msg)
+        return {"status": "error", "message": msg}
 
     state.config = config
-    logger.info(f"Configuración actualizada: modo={config.mode} ti={config.spec_params.ti_ms}ms")
+    logger.info(f"Configuration updated: mode={config.mode} ti={config.spec_params.ti_ms}ms")
 
     try:
         state.spectrometer.set_integration_time(config.spec_params.ti_ms)
     except Exception as e:
-        logger.error(f"Error configurando espectrómetro: {e}")
+        logger.error(f"Error configuring spectrometer: {e}")
 
-    return {"status": "ok", "message": "Configuración aplicada"}
+    return {"status": "ok", "message": "Configuration applied"}
 
 @app.post("/api/start")
 async def start_acquisition():
     if state.is_running:
-        return {"status": "error", "message": "Ya está corriendo"}
+        logger.warning("START ignored: already running")
+        return {"status": "error", "message": "Already running"}
     if not state.config:
-        return {"status": "error", "message": "No hay configuración cargada"}
+        logger.warning("START ignored: no configuration loaded")
+        return {"status": "error", "message": "No configuration loaded"}
 
     state.is_running     = True
     state.current_mode   = state.config.mode
     state.spectrum_count = 0
     state.last_error      = None
-    state.spectra_buffer  = []
-    state.acquisition_start_time = datetime.now()
-
+    _log_handler.buffer.clear()
     state.acquisition_task = asyncio.create_task(acquisition_loop())
-    logger.info(f"Adquisición iniciada: {state.current_mode}")
-    return {"status": "ok", "message": "Adquisición iniciada"}
+    logger.info(f"Acquisition started: {state.current_mode}")
+    return {"status": "ok", "message": "Acquisition started"}
 
 @app.post("/api/stop")
 async def stop_acquisition():
     if not state.is_running:
-        return {"status": "error", "message": "No está corriendo"}
+        logger.warning("STOP ignored: not running")
+        return {"status": "error", "message": "Not running"}
     state.is_running = False
     if state.acquisition_task and not state.acquisition_task.done():
         state.acquisition_task.cancel()
@@ -197,22 +244,39 @@ async def stop_acquisition():
             await state.acquisition_task
         except (asyncio.CancelledError, Exception):
             pass
-    logger.info("Adquisición detenida")
-    return {"status": "ok", "message": "Adquisición detenida"}
+    logger.info("Acquisition stopped")
+    return {"status": "ok", "message": "Acquisition stopped"}
+
+@app.post("/api/record/start")
+async def record_start():
+    state.is_recording = True
+    state.spectra_buffer = []
+    state.acquisition_start_time = datetime.now()
+    logger.info("Recording started")
+    return {"status": "ok", "message": "Recording started"}
+
+@app.post("/api/record/stop")
+async def record_stop():
+    state.is_recording = False
+    n = len(state.spectra_buffer)
+    logger.info(f"Recording stopped: {n} spectrum/spectra accumulated")
+    return {"status": "ok", "message": f"Recording stopped ({n} spectra)"}
 
 @app.post("/api/save")
 async def save_data():
     if not state.config:
-        return {"status": "error", "message": "No hay configuración cargada"}
+        logger.warning("SAVE ignored: no configuration loaded")
+        return {"status": "error", "message": "No configuration loaded"}
     if not state.spectra_buffer:
-        return {"status": "error", "message": "No hay datos para guardar"}
+        logger.warning("SAVE ignored: no data to save")
+        return {"status": "error", "message": "No data to save"}
     try:
         t = state.acquisition_start_time or datetime.now()
         result = await asyncio.to_thread(_write_file, list(state.spectra_buffer), t)
         state.spectra_buffer = []
         return result
     except Exception as e:
-        logger.error(f"Error guardando: {e}")
+        logger.error(f"Save error: {e}")
         return {"status": "error", "message": str(e)}
 
 
@@ -262,7 +326,7 @@ def _write_file(buf: list, start_time: datetime) -> dict:
             row = [f"{wl_val:.4f}"] + [f"{s['intensities'][i]:.2f}" for s in buf]
             f.write('\t'.join(row) + '\n')
 
-    msg = f"Guardado: {day_str}/{out_file.name}  ({len(buf)} espectros)"
+    msg = f"Saved: {day_str}/{out_file.name}  ({len(buf)} spectra)"
     logger.info(msg)
     return {"status": "ok", "message": msg, "path": str(out_file)}
 
@@ -270,11 +334,11 @@ def _write_file(buf: list, start_time: datetime) -> dict:
 @app.post("/api/spectrometer/reconnect")
 async def spectrometer_reconnect():
     if state.is_running:
-        return {"status": "error", "message": "Detener la adquisición antes de reconectar"}
+        return {"status": "error", "message": "Stop the acquisition before reconnecting"}
     try:
         await asyncio.to_thread(state.spectrometer.reconnect)
         connected = state.spectrometer.is_connected
-        msg = "Espectrómetro reconectado" if connected else "No se detectó el espectrómetro (verificar USB)"
+        msg = "Spectrometer reconnected" if connected else "Spectrometer not detected (check USB)"
         logger.info(msg)
         return {"status": "ok" if connected else "error", "connected": connected, "message": msg}
     except Exception as e:
@@ -290,7 +354,7 @@ async def spectrometer_reconnect():
 async def websocket_spectrum(websocket: WebSocket):
     await websocket.accept()
     state.active_websockets.append(websocket)
-    logger.info(f"WebSocket conectado. Total: {len(state.active_websockets)}")
+    logger.info(f"WebSocket connected. Total: {len(state.active_websockets)}")
 
     try:
         while True:
@@ -302,7 +366,7 @@ async def websocket_spectrum(websocket: WebSocket):
                 pass
             await asyncio.sleep(0.1)
     except WebSocketDisconnect:
-        logger.info("WebSocket desconectado")
+        logger.info("WebSocket disconnected")
     except Exception as e:
         logger.error(f"WebSocket error: {e}")
     finally:
@@ -315,8 +379,10 @@ async def websocket_spectrum(websocket: WebSocket):
 # =============================================================================
 
 async def broadcast_spectrum(wavelengths: List[float], intensities: List[float], metadata: dict):
-    entry = {'wavelengths': wavelengths, 'intensities': intensities, 'metadata': metadata}
-    state.spectra_buffer.append(entry)
+    if state.is_recording:
+        entry = {'wavelengths': wavelengths, 'intensities': intensities, 'metadata': metadata}
+        state.spectra_buffer.append(entry)
+        logger.info(f"Recording: spectrum #{len(state.spectra_buffer)} accumulated")
 
     if not state.active_websockets:
         return
@@ -339,7 +405,7 @@ async def broadcast_spectrum(wavelengths: List[float], intensities: List[float],
         try:
             await ws.send_json(message)
         except Exception as e:
-            logger.error(f"Error enviando a WebSocket: {e}")
+            logger.error(f"Error sending to WebSocket: {e}")
             disconnected.append(ws)
     for ws in disconnected:
         state.active_websockets.remove(ws)
@@ -355,7 +421,7 @@ async def acquire_spectrum(params: SpecParameters) -> tuple:
 async def acquisition_loop():
     config = state.config
     params = config.spec_params
-    logger.info(f"Loop de adquisición iniciado: {config.mode}")
+    logger.info(f"Acquisition loop started: {config.mode}")
 
     try:
         if config.mode == "SINGLE":
@@ -376,11 +442,11 @@ async def acquisition_loop():
                 state.spectrum_count += 1
                 await asyncio.sleep(params.delay_s)
     except Exception as e:
-        logger.error(f"Error de adquisición: {e}")
+        logger.error(f"Acquisition error: {e}")
         state.last_error = str(e)
     finally:
         state.is_running = False
-        logger.info("Loop de adquisición finalizado")
+        logger.info("Acquisition loop finished")
 
 
 # =============================================================================
@@ -425,24 +491,24 @@ async def viewer_files(folder: str):
 async def viewer_delete_file(folder: str, filename: str):
     path = DATA_DIR / Path(folder).name / Path(filename).name
     if not path.exists() or not path.is_file():
-        return {"status": "error", "message": "Archivo no encontrado"}
+        return {"status": "error", "message": "File not found"}
     try:
         path.unlink()
-        logger.info(f"Archivo eliminado: {folder}/{filename}")
-        # si la carpeta quedó vacía, la eliminamos también
+        logger.info(f"File deleted: {folder}/{filename}")
+        # remove the day folder too if it's now empty
         folder_path = path.parent
         if folder_path.is_dir() and not any(folder_path.iterdir()):
             folder_path.rmdir()
-        return {"status": "ok", "message": f"Eliminado: {filename}"}
+        return {"status": "ok", "message": f"Deleted: {filename}"}
     except Exception as e:
-        logger.error(f"Error eliminando {filename}: {e}")
+        logger.error(f"Error deleting {filename}: {e}")
         return {"status": "error", "message": str(e)}
 
 @app.get("/api/viewer/file")
 async def viewer_file(folder: str, filename: str):
     path = DATA_DIR / Path(folder).name / Path(filename).name
     if not path.exists():
-        return {"error": "Archivo no encontrado"}
+        return {"error": "File not found"}
     meta: dict = {}
     col_names   = None
     rows: list  = []
@@ -462,7 +528,7 @@ async def viewer_file(folder: str, filename: str):
                 except ValueError:
                     pass
     if not col_names or not rows:
-        return {"error": "No se pudo leer el archivo"}
+        return {"error": "Could not read file"}
     arr = np.array(rows)
     spectra = {}
     for i, name in enumerate(col_names[1:], 1):
@@ -471,15 +537,22 @@ async def viewer_file(folder: str, filename: str):
         spectra[name] = arr[:, i].tolist()
     return {"meta": meta, "wavelengths": arr[:, 0].tolist(), "spectra": spectra}
 
+class NoCacheStaticFiles(StaticFiles):
+    """Evita que el navegador cachee el HTML/JS del frontend entre despliegues."""
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+        return response
+
 if not FRONTEND_DIR.exists():
-    logger.warning(f"No se encontró el directorio del frontend en {FRONTEND_DIR}")
+    logger.warning(f"Frontend directory not found at {FRONTEND_DIR}")
 
     @app.get("/")
     async def root():
         return {"error": "Frontend not found", "expected_path": str(FRONTEND_DIR)}
 else:
-    app.mount("/", StaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
-    logger.info(f"Sirviendo frontend desde {FRONTEND_DIR}")
+    app.mount("/", NoCacheStaticFiles(directory=str(FRONTEND_DIR), html=True), name="frontend")
+    logger.info(f"Serving frontend from {FRONTEND_DIR}")
 
 
 if __name__ == "__main__":

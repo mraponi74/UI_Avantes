@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -13,14 +13,27 @@
     color: #222;
   }
   .app { display: flex; min-height: 100vh; flex-wrap: wrap; }
-  .left { flex: 1 1 600px; padding: 12px; }
-  .right { width: 340px; background: #e8e8e8; padding: 15px; }
+  .left { flex: 1 1 600px; min-width: 0; padding: 12px; }
+  .right {
+    flex: 0 1 340px; min-width: 0; max-width: 100%;
+    min-height: 100vh; background: #e8e8e8; padding: 15px;
+  }
+  @media (max-width: 700px) {
+    .right { flex-basis: 100%; min-height: auto; }
+  }
   #plot { width: 100%; height: 60vh; min-height: 320px; background: white; border: 1px solid #ccc; }
+  .plot-wrap { position: relative; }
+  .no-data-msg {
+    position: absolute; top: 12px; left: 16px;
+    font-size: 15px; font-weight: bold; color: #e53935;
+    animation: blink 1s steps(1) infinite; pointer-events: none;
+  }
+  @keyframes blink { 50% { opacity: 0; } }
   h1 { font-size: 18px; margin: 0 0 12px; }
-  h2 { font-size: 14px; margin: 16px 0 6px; text-transform: uppercase; color: #555; }
-  label { display: block; font-size: 13px; margin: 8px 0 3px; }
+  h2 { font-size: 17px; margin: 18px 0 8px; text-transform: uppercase; color: #444; }
+  label { display: block; font-size: 16px; font-weight: 600; margin: 10px 0 4px; }
   input, select {
-    width: 100%; padding: 8px; font-size: 14px; border: 1px solid #bbb; border-radius: 4px;
+    width: 100%; padding: 10px; font-size: 17px; border: 1px solid #bbb; border-radius: 4px;
   }
   .row { display: flex; gap: 8px; }
   .row > div { flex: 1; }
@@ -40,12 +53,11 @@
   .pill.run-on  { background: #4CAF50; }
   .pill.run-off { background: #f44336; }
   .btn-viewer {
-    display: block; width: 100%; text-align: center; margin-top: 14px;
-    padding: 14px; font-size: 17px; font-weight: bold; text-decoration: none;
-    color: white; background: #00897B; border: 2px solid #00695C; border-radius: 4px;
+    display: block; text-align: center; margin-top: 16px;
+    padding: 6px; font-size: 18px; font-weight: bold; text-decoration: underline;
+    color: #1565C0; background: none; border: none;
   }
-  .btn-viewer:active { background: #00695C; }
-  .msg { font-size: 12px; margin-top: 8px; min-height: 16px; color: #555; }
+  .btn-viewer:active { color: #0d47a1; }
   .logs {
     margin-top: 10px; height: 160px; overflow-y: auto; background: #1e1e1e; color: #ddd;
     font-family: "Courier New", monospace; font-size: 12px; border-radius: 4px; padding: 8px;
@@ -59,68 +71,93 @@
 <body>
 <div class="app">
   <div class="left">
-    <h1>Avantes Spectrometer — Adquisición</h1>
-    <canvas id="plot"></canvas>
+    <h1>Avantes Spectrometer — Acquisition</h1>
+    <div class="plot-wrap">
+      <canvas id="plot"></canvas>
+      <div class="no-data-msg" id="no-data-msg">No data — press START</div>
+    </div>
     <div class="status" id="status"></div>
-    <h2>Logs del backend</h2>
+    <h2>Backend Logs</h2>
     <div class="logs" id="logs"></div>
   </div>
 
   <div class="right">
-    <h2>Parámetros del espectrómetro</h2>
-    <label for="ti_ms">Tiempo de integración (ms)</label>
+    <h2>Spec Param</h2>
+    <label for="ti_ms">Integration time (ms)</label>
     <input type="number" id="ti_ms" value="100" min="1" step="1">
 
-    <label for="mode">Modo de adquisición</label>
+    <label for="mode">Acquisition mode</label>
     <select id="mode">
-      <option value="SINGLE">Un espectro (SINGLE)</option>
-      <option value="CONTINUOUS">Continuo (CONTINUOUS)</option>
+      <option value="SINGLE">Single spectrum (SINGLE)</option>
+      <option value="CONTINUOUS">Continuous (CONTINUOUS)</option>
     </select>
 
     <div class="row">
       <div>
-        <label for="delay_s">Delay entre espectros (s)</label>
+        <label for="delay_s">Delay (s)</label>
         <input type="number" id="delay_s" value="1" min="0" step="0.1">
       </div>
       <div>
-        <label for="num_averages">Promedios</label>
+        <label for="num_averages">Averages</label>
         <input type="number" id="num_averages" value="1" min="1" step="1">
       </div>
     </div>
 
-    <label for="filter_size">Filtro de suavizado (px)</label>
+    <label for="filter_size">Smoothing filter (px)</label>
     <input type="number" id="filter_size" value="1" min="1" step="1">
 
-    <h2>Guardado</h2>
-    <label for="sample_name">Nombre de muestra</label>
-    <input type="text" id="sample_name" value="muestra">
-
-    <label for="save_path">Carpeta de guardado (dentro del contenedor)</label>
-    <input type="text" id="save_path" value="/data">
-
-    <button class="button" id="btn-set">SET — Aplicar configuración</button>
-
+    <h2>Acquisition</h2>
     <div class="row">
       <button class="button primary" id="btn-start">START</button>
       <button class="button danger" id="btn-stop">STOP</button>
     </div>
-    <button class="button" id="btn-save">SAVE</button>
 
-    <h2>Espectrómetro</h2>
-    <button class="button" id="btn-reconnect">Reconectar</button>
+    <h2>SAVE</h2>
+    <label for="sample_name">Sample name</label>
+    <input type="text" id="sample_name" value="sample">
 
-    <a class="btn-viewer" href="viewer.html">📁 Ver espectros guardados</a>
-    <div class="msg" id="msg"></div>
+    <label for="save_path">Folder</label>
+    <input type="text" id="save_path" value="/data">
+
+    <div class="row">
+      <button class="button primary" id="btn-record-start">Start recording</button>
+      <button class="button danger" id="btn-record-stop">Stop recording</button>
+    </div>
+    <button class="button" id="btn-save">Save recording</button>
+
+    <h2>Spectrometer</h2>
+    <button class="button" id="btn-reconnect">Reconnect</button>
+
+    <div id="calib-section" style="display:none;">
+      <p style="font-size:13px;color:#c62828;font-weight:bold;margin:10px 0 4px;">
+        Unknown spectrometer — enter wavelength calibration (λ = c0 + c1·px + c2·px² + c3·px³):
+      </p>
+      <div class="row">
+        <div><label for="calib_c0">c0</label><input type="number" id="calib_c0" step="any"></div>
+        <div><label for="calib_c1">c1</label><input type="number" id="calib_c1" step="any"></div>
+      </div>
+      <div class="row">
+        <div><label for="calib_c2">c2</label><input type="number" id="calib_c2" step="any"></div>
+        <div><label for="calib_c3">c3</label><input type="number" id="calib_c3" step="any"></div>
+      </div>
+      <div class="row">
+        <div><label for="calib_wmin">λ min (nm)</label><input type="number" id="calib_wmin" step="any"></div>
+        <div><label for="calib_wmax">λ max (nm)</label><input type="number" id="calib_wmax" step="any"></div>
+      </div>
+      <button class="button primary" id="btn-calib-save">Save calibration</button>
+    </div>
+
+    <a class="btn-viewer" href="viewer.html">📁 View saved spectra</a>
   </div>
 </div>
 
 <script>
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
-const msgEl = $('msg');
 const logsEl = $('logs');
 const canvas = $('plot');
 const ctx = canvas.getContext('2d');
+const noDataEl = $('no-data-msg');
 
 let lastStatus = null;
 let lastSpectrum = null;
@@ -137,12 +174,8 @@ function drawPlot() {
   ctx.clearRect(0, 0, w, h);
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, w, h);
-  if (!lastSpectrum) {
-    ctx.fillStyle = '#999';
-    ctx.font = `${14 * devicePixelRatio}px sans-serif`;
-    ctx.fillText('Sin datos — presioná START', 20 * devicePixelRatio, 30 * devicePixelRatio);
-    return;
-  }
+  noDataEl.style.display = lastSpectrum ? 'none' : 'block';
+  if (!lastSpectrum) return;
   const { wavelengths, intensities } = lastSpectrum;
   const pad = 40 * devicePixelRatio;
   const xs = wavelengths, ys = intensities;
@@ -177,21 +210,21 @@ function drawPlot() {
 }
 
 function renderStatus() {
-  if (!lastStatus) { statusEl.innerHTML = 'Cargando estado...'; return; }
+  if (!lastStatus) { statusEl.innerHTML = 'Loading status...'; return; }
   const s = lastStatus;
   const connPill = s.spectrometer_connected
-    ? `<span class="pill run-on">Conectado</span>`
-    : `<span class="pill run-off">Desconectado</span>`;
+    ? `<span class="pill run-on">Connected</span>`
+    : `<span class="pill run-off">Disconnected</span>`;
   const runPill = s.is_running
-    ? `<span class="pill run-on">Corriendo${s.current_mode ? ' (' + s.current_mode + ')' : ''}</span>`
-    : `<span class="pill run-off">Detenida</span>`;
+    ? `<span class="pill run-on">Running${s.current_mode ? ' (' + s.current_mode + ')' : ''}</span>`
+    : `<span class="pill run-off">Stopped</span>`;
   statusEl.innerHTML = `
-    <div><span><b>Espectrómetro</b></span>${connPill}</div>
-    <div><span><b>Adquisición</b></span>${runPill}</div>
-    <div><span><b>Espectros</b></span><span>${s.spectrum_count}</span></div>
-    ${lastSpectrum ? `<div><span><b>Pico</b></span><span>${lastSpectrum.peak_counts} cnt (${lastSpectrum.sat_pct}%)</span></div>` : ''}
+    <div><span><b>Spectrometer</b></span>${connPill}</div>
+    <div><span><b>Acquisition</b></span>${runPill}</div>
+    ${lastSpectrum ? `<div><span><b>Peak</b></span><span>${lastSpectrum.peak_counts} cnt (${lastSpectrum.sat_pct}%)</span></div>` : ''}
     ${s.last_error ? `<div><span><b>Error</b></span><span>${s.last_error}</span></div>` : ''}
   `;
+  $('calib-section').style.display = s.needs_calibration ? 'block' : 'none';
 }
 
 function escapeHtml(s) {
@@ -227,33 +260,69 @@ function buildConfig() {
   };
 }
 
-$('btn-set').onclick = async () => {
-  const r = await api('/api/config', {
+// Refresca estado y logs de inmediato tras una acción, sin esperar al poll periódico.
+async function refreshNow() {
+  await Promise.all([pollStatus(), pollLogs()]);
+}
+
+async function applyConfig() {
+  await api('/api/config', {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(buildConfig()),
   });
-  msgEl.textContent = r.message || JSON.stringify(r);
-};
+  refreshNow();
+}
+
+// Aplica la configuración automáticamente ante cualquier cambio de parámetro.
+['ti_ms', 'mode', 'delay_s', 'num_averages', 'filter_size', 'sample_name', 'save_path']
+  .forEach((id) => $(id).addEventListener('change', applyConfig));
 
 $('btn-start').onclick = async () => {
-  const r = await api('/api/start', { method: 'POST' });
-  msgEl.textContent = r.message || JSON.stringify(r);
+  logsEl.innerHTML = '';   // limpieza inmediata en la UI (el backend limpia su buffer al arrancar)
+  await api('/api/start', { method: 'POST' });
+  refreshNow();
 };
 
 $('btn-stop').onclick = async () => {
-  const r = await api('/api/stop', { method: 'POST' });
-  msgEl.textContent = r.message || JSON.stringify(r);
+  await api('/api/stop', { method: 'POST' });
+  refreshNow();
+};
+
+$('btn-record-start').onclick = async () => {
+  await api('/api/record/start', { method: 'POST' });
+  refreshNow();
+};
+
+$('btn-record-stop').onclick = async () => {
+  await api('/api/record/stop', { method: 'POST' });
+  refreshNow();
 };
 
 $('btn-save').onclick = async () => {
-  const r = await api('/api/save', { method: 'POST' });
-  msgEl.textContent = r.message || JSON.stringify(r);
+  await api('/api/save', { method: 'POST' });
+  refreshNow();
 };
 
 $('btn-reconnect').onclick = async () => {
-  msgEl.textContent = 'Reconectando...';
-  const r = await api('/api/spectrometer/reconnect', { method: 'POST' });
-  msgEl.textContent = r.message || JSON.stringify(r);
+  await api('/api/spectrometer/reconnect', { method: 'POST' });
+  refreshNow();
+};
+
+$('btn-calib-save').onclick = async () => {
+  const body = {
+    c0: parseFloat($('calib_c0').value),
+    c1: parseFloat($('calib_c1').value),
+    c2: parseFloat($('calib_c2').value),
+    c3: parseFloat($('calib_c3').value),
+  };
+  const wmin = $('calib_wmin').value, wmax = $('calib_wmax').value;
+  if (wmin !== '') body.wave_min = parseFloat(wmin);
+  if (wmax !== '') body.wave_max = parseFloat(wmax);
+  await api('/api/spectrometer/calibration', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  refreshNow();
 };
 
 async function pollStatus() {
@@ -292,6 +361,7 @@ function connectWS() {
 
 resizeCanvas();
 connectWS();
+applyConfig();   // aplica la configuración inicial (valores por defecto de los campos)
 </script>
 </body>
 </html>

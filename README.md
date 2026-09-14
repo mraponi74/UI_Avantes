@@ -1,3 +1,5 @@
+<img src="docs/logo_DSR.jpeg" alt="División Sensado Remoto" width="220">
+
 # UI Avantes — Backend + frontend de adquisición para espectrómetros Avantes
 
 Aplicación dockerizada para controlar un espectrómetro Avantes (AvaSpec SDK /
@@ -67,6 +69,17 @@ sudo udevadm trigger
 
 Desconectar y reconectar el espectrómetro después de instalar la regla.
 
+⚠️ **Si el espectrómetro se desconecta/reconecta o se corta la alimentación
+mientras el contenedor está corriendo**, Linux le asigna un nuevo número de
+dispositivo USB (ej: `Bus 004 Device 002` → `Bus 004 Device 009`). El
+contenedor fija los nodos `/dev/bus/usb/...` al crearse, así que se queda con
+el nodo viejo y el botón "Reconectar" del frontend no alcanza para verlo.
+Solución: recrear el contenedor (no alcanza con un simple restart):
+
+```bash
+docker compose up -d --force-recreate
+```
+
 ## 🚀 Uso
 
 ### 1. Construir y levantar
@@ -86,6 +99,14 @@ También se puede usar la imagen publicada en Docker Hub sin buildear
 localmente — `docker-compose.yml` ya apunta a `mraponi74/ui-avantes:latest`,
 así que `docker compose up -d` (sin `--build`) la descarga y levanta directo.
 
+Si el puerto `8000` ya está en uso en el host, `docker compose up` va a
+fallar ("port is already allocated"). Se puede cambiar sin editar el
+archivo, con la variable `HOST_PORT`:
+
+```bash
+HOST_PORT=8080 docker compose up -d
+```
+
 ### 2. Abrir el frontend
 
 ```
@@ -97,12 +118,15 @@ Desde otra PC en la misma red: `http://<IP-del-host>:8000`.
 ### 3. Flujo de trabajo
 
 1. Configurar parámetros (Ti, modo, delay, promedios, filtro, muestra,
-   carpeta de guardado) y presionar **SET**.
-2. **START** inicia la adquisición (`SINGLE` = un espectro, `CONTINUOUS` =
-   loop con el delay configurado).
+   carpeta de guardado) — cada cambio se aplica solo, no hace falta un botón
+   aparte.
+2. **Iniciar** arranca la grabación (`SINGLE` = un espectro, `CONTINUOUS` =
+   loop con el delay configurado); el contador "espectros acumulados"
+   muestra en vivo cuántos hay pendientes de guardar.
 3. El espectro se grafica en vivo vía WebSocket.
-4. **STOP** detiene la adquisición.
-5. **SAVE** guarda el buffer de espectros adquiridos en `/data/<fecha>/`.
+4. **Detener** frena la grabación.
+5. **Guardar grabación** escribe el buffer de espectros acumulados en
+   `/data/<fecha>/`.
 6. **Ver espectros guardados** abre un visor para inspeccionar los archivos
    `.txt` guardados.
 
@@ -176,9 +200,19 @@ comunicarse con el hardware real; sin él, el backend corre en modo simulado
 
 ## 👨‍💻 Autor
 
-Dr. Marcelo Raponi
-División Sensado Remoto
-DEILAP - CITEDEF, MINDEF
+<img src="docs/logo_DSR.jpeg" alt="División Sensado Remoto" width="160">
+
+**Dr. BioEng. Marcelo Raponi**
+
+División Sensado Remoto (DSR), DEILAP
+CITEDEF-UNIDEF (MINDEF - CONICET)
+
+Juan Bautista de La Salle 4397
+B1063ALO, Villa Martelli
+Buenos Aires, Argentina
+
+Tel: +54 11 4709 8100 ext. 1533
+www.citedef.gob.ar
 
 ## 📄 Licencia
 

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>Visor de espectros — Avantes</title>
+<title>Spectra Viewer — Avantes</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family: Arial, sans-serif; background:#f0f0f0; overflow:hidden; }
@@ -156,52 +156,52 @@ select#folder-select {
         <div class="atom-orbit atom-orbit2"><div class="atom-electron"></div></div>
         <div class="atom-orbit atom-orbit3"><div class="atom-electron"></div></div>
       </div>
-      <div class="waiting-label">Seleccioná un archivo...</div>
+      <div class="waiting-label">Select a file...</div>
     </div>
   </div>
 
   <!-- ── PANEL DERECHO ── -->
   <div class="right-panel">
 
-    <button class="back-link" onclick="window.location.href='/'">← Volver al control</button>
+    <button class="back-link" onclick="window.location.href='/'">← Back to control</button>
 
     <!-- Carpeta -->
     <div class="section">
-      <div class="section-title">Carpeta de datos</div>
+      <div class="section-title">Data folder</div>
       <select id="folder-select">
-        <option value="">— cargando —</option>
+        <option value="">— loading —</option>
       </select>
     </div>
 
     <!-- Archivos -->
     <div class="section">
-      <div class="section-title">Archivos</div>
-      <div id="file-list"><div class="file-item" style="color:#aaa">Sin archivos</div></div>
+      <div class="section-title">Files</div>
+      <div id="file-list"><div class="file-item" style="color:#aaa">No files</div></div>
       <div class="file-count" id="file-count"></div>
       <div class="nav-row">
-        <button id="btn-prev">← Anterior</button>
-        <button id="btn-next">Siguiente →</button>
+        <button id="btn-prev">← Previous</button>
+        <button id="btn-next">Next →</button>
       </div>
-      <button class="delete-link" id="btn-delete">🗑 Borrar archivo</button>
+      <button class="delete-link" id="btn-delete">🗑 Delete file</button>
     </div>
 
     <!-- Corrección offset/dark -->
     <div class="section" id="correction-section" style="display:none;">
-      <div class="section-title">Señal</div>
+      <div class="section-title">Signal</div>
       <div class="range-row" style="justify-content:space-between;">
-        <label for="correction-toggle" style="font-size:13px;font-weight:600;">Ver corregida (offset/dark)</label>
+        <label for="correction-toggle" style="font-size:13px;font-weight:600;">Show corrected (offset/dark)</label>
         <input type="checkbox" id="correction-toggle">
       </div>
-      <div style="font-size:11px;color:#888;margin-top:2px;">Sin marcar: cruda, tal cual se guardó.</div>
+      <div style="font-size:11px;color:#888;margin-top:2px;">Unchecked: raw, as saved.</div>
     </div>
 
     <!-- Rango lambda -->
     <div class="section" style="font-size:11px;color:#888;line-height:1.5;">
-      Arrastrá sobre el gráfico para hacer zoom a esa región · doble-click para resetear · pasá el mouse para ver λ · click sobre una curva para identificar el ángulo · con un punto seleccionado, ←/→ lo mueven sobre esa curva.
+      Drag over the plot to zoom into that region · double-click to reset · hover to see λ · click a curve to identify the angle · with a point selected, ←/→ move it along that curve.
     </div>
 
     <div class="section">
-      <div class="section-title">Rango λ</div>
+      <div class="section-title">λ range</div>
       <div class="range-row">
         <label>min:</label>
         <input type="number" id="lambda-min" value="285" step="5">
@@ -210,14 +210,14 @@ select#folder-select {
         <span>nm</span>
       </div>
       <div class="range-btns">
-        <button id="btn-lambda-apply">Aplicar</button>
+        <button id="btn-lambda-apply">Apply</button>
         <button id="btn-lambda-reset">Reset</button>
       </div>
     </div>
 
     <!-- Rango cuentas -->
     <div class="section">
-      <div class="section-title">Rango cuentas</div>
+      <div class="section-title">Counts range</div>
       <div class="range-row">
         <label>min:</label>
         <input type="number" id="counts-min" value="0" step="100">
@@ -225,14 +225,14 @@ select#folder-select {
         <input type="number" id="counts-max" value="65535" step="100">
       </div>
       <div class="range-btns">
-        <button id="btn-counts-apply">Aplicar</button>
+        <button id="btn-counts-apply">Apply</button>
         <button id="btn-counts-reset">Reset</button>
       </div>
     </div>
 
     <!-- Metadata -->
     <div class="section">
-      <div class="section-title">Metadatos</div>
+      <div class="section-title">Metadata</div>
       <div id="meta-box"><span style="color:#aaa">—</span></div>
     </div>
 
@@ -377,7 +377,7 @@ function loadFolders() {
 function loadFiles(folder) {
     currentFolder = folder;
     document.getElementById('file-list').innerHTML =
-        '<div class="file-item" style="color:#aaa">Cargando...</div>';
+        '<div class="file-item" style="color:#aaa">Loading...</div>';
     apiGet('/api/viewer/files?folder=' + encodeURIComponent(folder), function(err, data) {
         files = (err || !data.files) ? [] : data.files;
         renderFileList();
@@ -394,11 +394,11 @@ function loadFiles(folder) {
 function loadFile(filename) {
     clickMarker = null;
     overlay.className = 'visible';
-    overlay.querySelector('.waiting-label').textContent = 'Cargando...';
+    overlay.querySelector('.waiting-label').textContent = 'Loading...';
     apiGet('/api/viewer/file?folder=' + encodeURIComponent(currentFolder) +
            '&filename=' + encodeURIComponent(filename), function(err, data) {
         if (err || data.error) {
-            overlay.querySelector('.waiting-label').textContent = 'Error al leer archivo';
+            overlay.querySelector('.waiting-label').textContent = 'Error reading file';
             return;
         }
         currentData = data;
@@ -418,7 +418,7 @@ function loadFile(filename) {
 function renderFileList() {
     var list = document.getElementById('file-list');
     if (!files.length) {
-        list.innerHTML = '<div class="file-item" style="color:#aaa">Sin archivos</div>';
+        list.innerHTML = '<div class="file-item" style="color:#aaa">No files</div>';
         document.getElementById('file-count').textContent = '';
         return;
     }
@@ -659,7 +659,7 @@ function drawPlot() {
 function deleteCurrentFile() {
     var filename = files[fileIndex];
     if (!filename) return;
-    if (!confirm('¿Borrar el archivo "' + filename + '"? Esta acción no se puede deshacer.')) return;
+    if (!confirm('Delete file "' + filename + '"? This action cannot be undone.')) return;
 
     var btn = document.getElementById('btn-delete');
     btn.disabled = true;
@@ -667,7 +667,7 @@ function deleteCurrentFile() {
               '&filename=' + encodeURIComponent(filename), function(err, data) {
         btn.disabled = false;
         if (err || !data || data.status !== 'ok') {
-            alert('No se pudo borrar: ' + ((data && data.message) || 'error desconocido'));
+            alert('Could not delete: ' + ((data && data.message) || 'unknown error'));
             return;
         }
         loadFolders();   // recarga carpetas/archivos (la carpeta pudo haber quedado vacía)

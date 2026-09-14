@@ -5,7 +5,7 @@ services:
     container_name: avantes-spectrometer-ui
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "${HOST_PORT:-8000}:8000"
     volumes:
       - ./data:/data
     devices:
