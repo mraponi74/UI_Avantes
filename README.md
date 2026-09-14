@@ -34,10 +34,18 @@ llegue a esa IP/puerto — no requiere hotspot ni red dedicada.
 
 El contenedor necesita acceso directo al dispositivo USB del espectrómetro:
 
-- **Linux (recomendado)**: Docker corre nativo sobre el kernel del host, el
-  bus USB se pasa directo al contenedor. Es la misma base que ya funcionaba
-  en la Raspberry Pi con Ubuntu, sólo que ahora corre en cualquier PC/mini PC
-  con Linux + Docker.
+- **Linux (recomendado)**: Docker Engine nativo (`dockerd` como servicio del
+  sistema, `apt install docker.io`/`docker-ce`) corre sobre el kernel del
+  host y el bus USB se pasa directo al contenedor. Es la misma base que ya
+  funcionaba en la Raspberry Pi con Ubuntu, sólo que ahora corre en cualquier
+  PC/mini PC con Linux + Docker.
+
+  ⚠️ **Docker Desktop en Linux NO sirve para esto**: aunque el SO sea Linux,
+  Docker Desktop igual corre su motor dentro de una VM interna, así que
+  `/dev/bus/usb` dentro del contenedor queda desconectado del USB real del
+  host y el espectrómetro nunca aparece. Hay que usar el Docker Engine
+  nativo (`docker context use default`, o directamente desinstalar Desktop y
+  dejar sólo `docker.io`/`docker-ce` + el plugin `docker-compose-plugin`).
 - **Windows**: Docker Desktop corre sobre una VM (WSL2), así que el USB no es
   visible por defecto. Hace falta compartir el dispositivo con
   [`usbipd-win`](https://github.com/dorssel/usbipd-win) hacia WSL2 antes de
