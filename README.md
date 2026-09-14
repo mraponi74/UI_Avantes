@@ -133,23 +133,31 @@ needs the privileged USB bind mount and the `/data` volume that
 `docker-compose.yml` sets up (see step 2 below). Cloning the repo is the
 simpler path even if you don't intend to build the image yourself.
 
-### 2. Build and start
+### 2. Start it
+
+No need to build anything — `docker-compose.yml` already points at the
+prebuilt image on Docker Hub (`mraponi74/ui-avantes:latest`), so this pulls
+and starts it directly:
 
 ```bash
-docker compose up -d --build
+docker compose up -d
 ```
 
-This builds the image (Ubuntu 22.04 + Avantes SDK + backend + frontend) and
-starts the container with:
+This starts the container with:
 - Port `8000` published on the host.
 - `./data` (on the host) mounted at `/data` (inside the container) — spectra
   are saved there.
 - The host's USB bus mapped into the container.
 
-The image published on Docker Hub can also be used without building
-locally — `docker-compose.yml` already points at
-`mraponi74/ui-avantes:latest`, so `docker compose up -d` (without `--build`)
-pulls and starts it directly.
+Only building it yourself is needed if you changed the code — add
+`--build`:
+
+```bash
+docker compose up -d --build
+```
+
+which builds the image locally (Ubuntu 22.04 + Avantes SDK + backend +
+frontend) instead of pulling it.
 
 If port `8000` is already in use on the host, `docker compose up` will fail
 ("port is already allocated"). It can be changed without editing the file,
