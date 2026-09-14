@@ -25,6 +25,33 @@ CALIB_PATH = Path(os.environ.get("CALIB_PATH", "/data/calibrations.json"))
 _calib_store = CalibrationStore(CALIB_PATH)
 
 NUM_PIXELS = 2048
+AVANTES_USB_VENDOR_ID = "1992"
+
+
+def _read_usb_model_name() -> Optional[str]:
+    """
+    Reads the USB product string (e.g. "AS7010") for the connected Avantes
+    device straight from the kernel's USB descriptors. The AvaSpec SDK's own
+    identity struct doesn't expose the model — its "friendly name" defaults
+    to the serial number unless someone set a custom one via Avantes' own
+    software.
+    """
+    sysfs_root = Path("/sys/bus/usb/devices")
+    try:
+        for dev_dir in sysfs_root.iterdir():
+            vendor_file = dev_dir / "idVendor"
+            if not vendor_file.is_file():
+                continue
+            if vendor_file.read_text().strip() != AVANTES_USB_VENDOR_ID:
+                continue
+            product_file = dev_dir / "product"
+            if product_file.is_file():
+                name = product_file.read_text().strip()
+                if name:
+                    return name
+    except Exception as e:
+        logger.warning(f"Could not read USB model name from sysfs: {e}")
+    return None
 
 
 class SpectrometerController:
@@ -45,6 +72,7 @@ class SpectrometerController:
         self._reconnect_thread = None
 
         self.serial_number: Optional[str] = None
+        self.model_name: Optional[str] = None
         self.needs_calibration = False
         self.wavelengths = np.arange(NUM_PIXELS, dtype=float)
         self.WAVE_MIN = self.DEFAULT_WAVE_MIN
@@ -81,6 +109,11 @@ class SpectrometerController:
         ])
         self.WAVE_MIN = calib.get("wave_min", float(self.wavelengths.min()))
         self.WAVE_MAX = calib.get("wave_max", float(self.wavelengths.max()))
+        # El modelo real (ej: "AvaSpec-ULS2048XL-EVO") no lo expone ni el SDK
+        # ni el descriptor USB — sólo el chip controlador (ej: "AS7010"). Si
+        # la calibración lo trae guardado, lo preferimos sobre ese fallback.
+        if calib.get("model"):
+            self.model_name = calib["model"]
 
     def set_calibration(self, calib: dict):
         """Saves and immediately applies a wavelength calibration for the
@@ -123,6 +156,8 @@ class SpectrometerController:
             _, ids = AVS_GetList()
             serial = ids[0].SerialNumber
             self.serial_number = (serial.decode("ascii", errors="ignore") if isinstance(serial, bytes) else str(serial)).strip()
+            self.model_name = _read_usb_model_name()
+            logger.info(f"Device identity — serial: {self.serial_number!r}  model: {self.model_name!r}")
 
             self.dev_handle = AVS_Activate(ids[0])
             AVS_UseHighResAdc(self.dev_handle, True)

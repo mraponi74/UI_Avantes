@@ -81,9 +81,11 @@ class SystemStatus(BaseModel):
     current_mode: Optional[str]
     spectrometer_connected: bool
     spectrometer_serial: Optional[str]
+    spectrometer_model: Optional[str]
     needs_calibration: bool
     last_error: Optional[str]
     buffer_count: int   # espectros grabados, pendientes de guardar
+    config: Optional[SystemConfig] = None   # config actualmente cargada en el backend, si hay
 
 class CalibrationInput(BaseModel):
     c0: float   # intercept (nm)
@@ -92,6 +94,7 @@ class CalibrationInput(BaseModel):
     c3: float   # cubic term
     wave_min: Optional[float] = None   # crop range (nm); omit to keep full range
     wave_max: Optional[float] = None
+    model: Optional[str] = None   # ej: "AvaSpec-ULS2048XL-EVO" — no lo expone el SDK ni el USB
 
 
 # =============================================================================
@@ -163,9 +166,11 @@ async def get_status() -> SystemStatus:
         current_mode=state.current_mode,
         spectrometer_connected=state.spectrometer.is_connected if state.spectrometer else False,
         spectrometer_serial=state.spectrometer.serial_number if state.spectrometer else None,
+        spectrometer_model=state.spectrometer.model_name if state.spectrometer else None,
         needs_calibration=state.spectrometer.needs_calibration if state.spectrometer else False,
         last_error=state.last_error,
         buffer_count=len(state.spectra_buffer),
+        config=state.config,
     )
 
 @app.get("/api/spectrometer/calibration")

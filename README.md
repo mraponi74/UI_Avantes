@@ -32,6 +32,37 @@ reach that IP/port — no hotspot or dedicated network required.
 - The installer `vendor/avantes/libavs_9.14.0.0-0_amd64.deb` (included in
   the repo) — proprietary Avantes SDK, don't redistribute it outside this use.
 
+### Installing Docker
+
+**Linux** (recommended — see below for why it has to be the native engine,
+not Docker Desktop):
+
+```bash
+curl -fsSL https://get.docker.com | sudo sh
+sudo usermod -aG docker $USER   # log out and back in for this to take effect
+```
+
+That installs Docker Engine (`docker-ce`) plus the `docker compose` plugin.
+Full per-distro instructions: https://docs.docker.com/engine/install/.
+Verify with:
+
+```bash
+docker --version
+docker compose version
+```
+
+**Windows**: install
+[Docker Desktop for Windows](https://docs.docker.com/desktop/install/windows-install/)
+(it sets up WSL2 if you don't already have it). To actually see the
+spectrometer from inside the container you'll also need
+[`usbipd-win`](https://github.com/dorssel/usbipd-win) — see the USB section
+below.
+
+**macOS**: install
+[Docker Desktop for Mac](https://docs.docker.com/desktop/install/mac-install/).
+Fine for trying out the UI without hardware; USB passthrough to a real
+spectrometer isn't reliably supported (see below).
+
 ### USB access by operating system
 
 The container needs direct access to the spectrometer's USB device:
@@ -41,13 +72,6 @@ The container needs direct access to the spectrometer's USB device:
   the USB bus passes straight through to the container. Same base that
   already worked on the Raspberry Pi with Ubuntu, just now it runs on any
   PC/mini PC with Linux + Docker.
-
-  ⚠️ **Docker Desktop on Linux does NOT work for this**: even though the OS
-  is Linux, Docker Desktop still runs its engine inside an internal VM, so
-  `/dev/bus/usb` inside the container is disconnected from the host's real
-  USB and the spectrometer never shows up. Use the native Docker Engine
-  instead (`docker context use default`, or uninstall Desktop entirely and
-  keep just `docker.io`/`docker-ce` + the `docker-compose-plugin`).
 - **Windows**: Docker Desktop runs on a VM (WSL2), so USB isn't visible by
   default. The device needs to be shared into WSL2 with
   [`usbipd-win`](https://github.com/dorssel/usbipd-win) before starting the
@@ -210,14 +234,6 @@ container recreations via the `/data` volume.
   reference lamp/laser, same procedure as before) plus the wavelength crop
   range; saving it writes the entry for that serial and applies it
   immediately.
-
-## 🐳 Publish the image to Docker Hub
-
-```bash
-docker login
-docker build -t mraponi74/ui-avantes:latest .
-docker push mraponi74/ui-avantes:latest
-```
 
 ## 👨‍💻 Author
 

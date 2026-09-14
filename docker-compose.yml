@@ -6,13 +6,13 @@ services:
     restart: unless-stopped
     ports:
       - "${HOST_PORT:-8000}:8000"
+    # privileged + a real bind mount (not `devices:`) of /dev/bus/usb — this
+    # gives the container a live view of the host's USB tree, so a
+    # spectrometer replug (which gets a new device number) is picked up
+    # without recreating the container. `devices:` instead snapshots the
+    # device nodes that existed at container creation, which goes stale on
+    # any USB replug/power-cycle.
+    privileged: true
     volumes:
       - ./data:/data
-    devices:
-      # Acceso al bus USB completo (Linux). El espectrómetro Avantes puede
-      # cambiar de bus/dispositivo al reconectar, por eso se mapea el bus
-      # entero en vez de un nodo puntual (ej: /dev/bus/usb/001/004).
-      - "/dev/bus/usb:/dev/bus/usb"
-    # Si el mapeo de /dev/bus/usb no alcanza (permisos del host), se puede
-    # habilitar temporalmente el modo privilegiado en su lugar:
-    # privileged: true
+      - /dev/bus/usb:/dev/bus/usb

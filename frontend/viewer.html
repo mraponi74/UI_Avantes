@@ -45,10 +45,15 @@ select#folder-select {
     margin-bottom:8px;
 }
 .file-item {
+    display:flex; align-items:center; gap:6px;
     padding:7px 10px; cursor:pointer; font-size:12px;
     border-bottom:1px solid #eee; font-family:monospace;
-    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+    white-space:nowrap; overflow:hidden;
 }
+.file-item span {
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.file-check { flex-shrink:0; cursor:pointer; }
 .file-item:hover   { background:#e3f2fd; }
 .file-item.active  { background:#1565C0; color:white; font-weight:bold; }
 .file-count        { font-size:11px; color:#888; text-align:right; margin-top:2px; }
@@ -250,6 +255,7 @@ var currentData   = null;   // {meta, wavelengths, spectra}
 var currentFolder = '';
 var files         = [];
 var fileIndex     = 0;
+var selectedFiles = new Set();   // filenames checked for bulk delete
 
 var plotLambdaMin = null;
 var plotLambdaMax = null;
@@ -376,6 +382,7 @@ function loadFolders() {
 
 function loadFiles(folder) {
     currentFolder = folder;
+    selectedFiles.clear();
     document.getElementById('file-list').innerHTML =
         '<div class="file-item" style="color:#aaa">Loading...</div>';
     apiGet('/api/viewer/files?folder=' + encodeURIComponent(folder), function(err, data) {
@@ -417,17 +424,37 @@ function loadFile(filename) {
 // ── Lista de archivos ─────────────────────────────────────────────────────────
 function renderFileList() {
     var list = document.getElementById('file-list');
+    // Descartar selecciones de archivos que ya no existen (carpeta cambiada, etc.)
+    var validNames = new Set(files);
+    selectedFiles.forEach(function(f) { if (!validNames.has(f)) selectedFiles.delete(f); });
+
     if (!files.length) {
         list.innerHTML = '<div class="file-item" style="color:#aaa">No files</div>';
         document.getElementById('file-count').textContent = '';
+        updateDeleteButton();
         return;
     }
     list.innerHTML = '';
     files.forEach(function(name, i) {
         var div = document.createElement('div');
         div.className = 'file-item' + (i === fileIndex ? ' active' : '');
-        div.textContent = name;
         div.title = name;
+
+        var cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.className = 'file-check';
+        cb.checked = selectedFiles.has(name);
+        cb.onclick = function(ev) {
+            ev.stopPropagation();
+            if (cb.checked) selectedFiles.add(name); else selectedFiles.delete(name);
+            updateDeleteButton();
+        };
+        div.appendChild(cb);
+
+        var label = document.createElement('span');
+        label.textContent = name;
+        div.appendChild(label);
+
         div.onclick = function() { fileIndex = i; loadFile(name); };
         list.appendChild(div);
     });
@@ -436,6 +463,13 @@ function renderFileList() {
     if (active) active.scrollIntoView({block:'nearest'});
     document.getElementById('file-count').textContent =
         (fileIndex + 1) + ' / ' + files.length;
+    updateDeleteButton();
+}
+
+function updateDeleteButton() {
+    var btn = document.getElementById('btn-delete');
+    var n = selectedFiles.size;
+    btn.textContent = n > 0 ? ('🗑 Delete selected (' + n + ')') : '🗑 Delete file';
 }
 
 // ── Metadatos ─────────────────────────────────────────────────────────────────
@@ -657,21 +691,38 @@ function drawPlot() {
 
 // ── Navegación ────────────────────────────────────────────────────────────────
 function deleteCurrentFile() {
-    var filename = files[fileIndex];
-    if (!filename) return;
-    if (!confirm('Delete file "' + filename + '"? This action cannot be undone.')) return;
+    var targets = selectedFiles.size > 0
+        ? Array.from(selectedFiles)
+        : (files[fileIndex] ? [files[fileIndex]] : []);
+    if (!targets.length) return;
+
+    var msg = targets.length === 1
+        ? 'Delete file "' + targets[0] + '"? This action cannot be undone.'
+        : 'Delete ' + targets.length + ' selected files? This action cannot be undone.';
+    if (!confirm(msg)) return;
 
     var btn = document.getElementById('btn-delete');
     btn.disabled = true;
-    apiDelete('/api/viewer/file?folder=' + encodeURIComponent(currentFolder) +
-              '&filename=' + encodeURIComponent(filename), function(err, data) {
-        btn.disabled = false;
-        if (err || !data || data.status !== 'ok') {
-            alert('Could not delete: ' + ((data && data.message) || 'unknown error'));
+    var errors = [];
+    var i = 0;
+    function next() {
+        if (i >= targets.length) {
+            btn.disabled = false;
+            selectedFiles.clear();
+            if (errors.length) alert('Some files could not be deleted:\n' + errors.join('\n'));
+            loadFolders();   // recarga carpetas/archivos (la carpeta pudo haber quedado vacía)
             return;
         }
-        loadFolders();   // recarga carpetas/archivos (la carpeta pudo haber quedado vacía)
-    });
+        var filename = targets[i++];
+        apiDelete('/api/viewer/file?folder=' + encodeURIComponent(currentFolder) +
+                  '&filename=' + encodeURIComponent(filename), function(err, data) {
+            if (err || !data || data.status !== 'ok') {
+                errors.push(filename + ': ' + ((data && data.message) || 'unknown error'));
+            }
+            next();
+        });
+    }
+    next();
 }
 
 function navigate(delta) {
