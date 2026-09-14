@@ -442,8 +442,8 @@ function renderFileList() {
 function renderMeta(meta) {
     var box = document.getElementById('meta-box');
     if (!meta || !Object.keys(meta).length) { box.innerHTML='<span style="color:#aaa">—</span>'; return; }
-    var keys = ['Muestra','Fecha','Hora_inicio','Ti_ms','Lambda_min_nm','Lambda_max_nm',
-                'Promedios','Filtro_px','N_espectros'];
+    var keys = ['Sample','Date','Start_time','Ti_ms','Lambda_min_nm','Lambda_max_nm',
+                'Averages','Filter_px','N_spectra'];
     var html = '';
     keys.forEach(function(k) {
         if (meta[k] !== undefined) {
@@ -577,7 +577,7 @@ function drawPlot() {
 
     // ── Título ────────────────────────────────────────────────────────────────
     var meta = currentData.meta;
-    var ttl  = [meta.Volcan, meta.Fecha, meta.Hora_inicio].filter(Boolean).join('   ');
+    var ttl  = [meta.Sample, meta.Date, meta.Start_time].filter(Boolean).join('   ');
     var fn   = files[fileIndex] || '';
     ctx.fillStyle = '#333'; ctx.textAlign = 'left'; ctx.font = 'bold 12px Arial';
     ctx.fillText(fn, mg.left, 20);
@@ -586,9 +586,9 @@ function drawPlot() {
 
     // ── Info box Ti + N ───────────────────────────────────────────────────────
     var ti  = meta.Ti_ms || '?';
-    var nsp = meta.N_espectros || '?';
-    var npr = meta.Promedios   || '?';
-    var info = 'Ti: ' + ti + ' ms    N: ' + nsp + '    Prom: ' + npr;
+    var nsp = meta.N_spectra || '?';
+    var npr = meta.Averages  || '?';
+    var info = 'Ti: ' + ti + ' ms    N: ' + nsp + '    Avg: ' + npr;
     ctx.font = '10px monospace'; ctx.fillStyle = '#555';
     ctx.textAlign = 'right';
     ctx.fillText(info, mg.left+pw, 20);

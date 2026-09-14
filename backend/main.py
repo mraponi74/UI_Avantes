@@ -295,7 +295,7 @@ def _write_file(buf: list, start_time: datetime) -> dict:
     date_compact = start_time.strftime('%Y%m%d')
     time_str     = start_time.strftime('%H%M%S')
 
-    sample  = (meta.sample_name or 'muestra').strip().replace(' ', '_')
+    sample  = (meta.sample_name or 'sample').strip().replace(' ', '_')
     day_dir = Path(meta.save_path) / day_str
     day_dir.mkdir(parents=True, exist_ok=True)
     out_file = day_dir / f"spec_{sample}_{date_compact}_{time_str}.txt"
@@ -305,15 +305,15 @@ def _write_file(buf: list, start_time: datetime) -> dict:
 
     header = [
         "# Avantes Spectrometer Acquisition",
-        f"# Muestra:        {meta.sample_name or 'N/A'}",
-        f"# Fecha:          {day_str}",
-        f"# Hora_inicio:    {start_time.strftime('%H:%M:%S')}",
+        f"# Sample:         {meta.sample_name or 'N/A'}",
+        f"# Date:           {day_str}",
+        f"# Start_time:     {start_time.strftime('%H:%M:%S')}",
         f"# Ti_ms:          {ti_str}",
         f"# Lambda_min_nm:  {round(wl[0], 2)}",
         f"# Lambda_max_nm:  {round(wl[-1], 2)}",
-        f"# Promedios:      {cfg.spec_params.num_averages}",
-        f"# Filtro_px:      {cfg.spec_params.filter_size}",
-        f"# N_espectros:    {len(buf)}",
+        f"# Averages:       {cfg.spec_params.num_averages}",
+        f"# Filter_px:      {cfg.spec_params.filter_size}",
+        f"# N_spectra:      {len(buf)}",
         "#",
     ]
 

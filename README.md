@@ -180,24 +180,20 @@ One text file per acquisition, at `/data/<YYYY-MM-DD>/spec_<sample>_<date>_<time
 
 ```
 # Avantes Spectrometer Acquisition
-# Muestra:        example
-# Fecha:          2026-09-14
-# Hora_inicio:    10:30:00
+# Sample:         example
+# Date:           2026-09-14
+# Start_time:     10:30:00
 # Ti_ms:          100.0
 # Lambda_min_nm:  285.12
 # Lambda_max_nm:  539.87
-# Promedios:      3
-# Filtro_px:      1
-# N_espectros:    5
+# Averages:       3
+# Filter_px:      1
+# N_spectra:      5
 #
 wl      spec_1      spec_2      ...
 285.12  1234.00     1245.00     ...
 ...
 ```
-
-(the header field names are in Spanish — they're written by the backend and
-read back by the built-in viewer; let us know if you'd like these
-translated too, it's a separate change from the UI.)
 
 ## 🎯 Wavelength calibration
 
