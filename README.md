@@ -1,5 +1,3 @@
-<img src="docs/logo_DSR.jpeg" alt="División Sensado Remoto" width="220">
-
 # UI Avantes — Acquisition backend + frontend for Avantes spectrometers
 
 Dockerized application to control an Avantes spectrometer (AvaSpec SDK /
