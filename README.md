@@ -101,11 +101,21 @@ así que `docker compose up -d` (sin `--build`) la descarga y levanta directo.
 
 Si el puerto `8000` ya está en uso en el host, `docker compose up` va a
 fallar ("port is already allocated"). Se puede cambiar sin editar el
-archivo, con la variable `HOST_PORT`:
+archivo, con la variable `HOST_PORT` — vía un archivo `.env`:
+
+```bash
+cp .env.example .env
+# editar .env y poner HOST_PORT=8080 (por ejemplo)
+docker compose up -d
+```
+
+o al vuelo, sin `.env`:
 
 ```bash
 HOST_PORT=8080 docker compose up -d
 ```
+
+Si no se define `HOST_PORT` de ninguna forma, se usa `8000` por defecto.
 
 ### 2. Abrir el frontend
 
