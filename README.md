@@ -73,7 +73,7 @@ The container needs direct access to the spectrometer's USB device:
 - **Windows**: Docker Desktop runs on a VM (WSL2), so USB isn't visible by
   default. The device needs to be shared into WSL2 with
   [`usbipd-win`](https://github.com/dorssel/usbipd-win) before starting the
-  container.
+  container — see the Windows steps below.
 - **macOS**: Docker Desktop also runs in a VM with no stable USB passthrough
   path. Not directly supported; Linux or Windows+usbipd-win is recommended
   for actual use with the instrument.
@@ -81,7 +81,17 @@ The container needs direct access to the spectrometer's USB device:
 ### udev rule (Linux host)
 
 So the host user has permission on the USB device before it's passed to the
-container:
+container — this is a one-time, manual host setup step; Docker has no way
+to do it itself (`docker build`/`docker compose up` run inside a container,
+isolated from the host's own udev):
+
+```bash
+./docker/install-udev.sh
+```
+
+That copies `docker/99-avantes.rules` to `/etc/udev/rules.d/` and reloads
+udev (it re-runs itself with `sudo` if needed). Equivalent manual steps, if
+you'd rather not run the script:
 
 ```bash
 sudo cp docker/99-avantes.rules /etc/udev/rules.d/
@@ -90,6 +100,28 @@ sudo udevadm trigger
 ```
 
 Unplug and replug the spectrometer after installing the rule.
+
+### Windows: sharing the USB device into WSL2
+
+1. Install [`usbipd-win`](https://github.com/dorssel/usbipd-win).
+2. In an elevated (Administrator) PowerShell, find the spectrometer:
+   ```powershell
+   usbipd list
+   ```
+   Look for "Avantes" in the list and note its `BUSID` (e.g. `4-1`).
+3. Bind it once (only needed the first time for that device):
+   ```powershell
+   usbipd bind --busid 4-1
+   ```
+4. Attach it to WSL2 (needed again after every replug/reboot):
+   ```powershell
+   usbipd attach --wsl --busid 4-1
+   ```
+5. Then start the container as usual from your WSL2 terminal
+   (`docker compose up -d`). If the container still can't see the device,
+   the same `docker/99-avantes.rules` udev rule can be installed *inside*
+   WSL2 (run `./docker/install-udev.sh` from a WSL2 shell, not from
+   Windows) — WSL2 runs its own real Linux kernel with its own udev.
 
 ⚠️ **If the spectrometer disconnects/reconnects or loses power while the
 container is running**, Linux assigns it a new USB device number (e.g.
