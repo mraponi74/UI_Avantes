@@ -14,6 +14,7 @@ import asyncio
 import json
 import numpy as np
 import os
+from collections import deque
 from datetime import datetime
 from pathlib import Path
 import logging
@@ -24,6 +25,35 @@ from hardware_controllers import SpectrometerController
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# LOG BUFFER — para mostrar en vivo lo que hace el backend en el frontend
+# =============================================================================
+
+class _LogBufferHandler(logging.Handler):
+    """Guarda los últimos logs de la app (no de uvicorn.access) en memoria."""
+
+    def __init__(self, maxlen: int = 500):
+        super().__init__()
+        self.buffer: deque = deque(maxlen=maxlen)
+
+    def emit(self, record: logging.LogRecord):
+        if record.name.startswith("uvicorn"):
+            return
+        try:
+            msg = self.format(record)
+        except Exception:
+            msg = record.getMessage()
+        self.buffer.append({
+            "t": datetime.now().strftime("%H:%M:%S"),
+            "level": record.levelname,
+            "msg": msg,
+        })
+
+_log_handler = _LogBufferHandler()
+_log_handler.setFormatter(logging.Formatter("%(message)s"))
+logging.getLogger().addHandler(_log_handler)
 
 
 # =============================================================================
@@ -419,6 +449,10 @@ DATA_DIR     = Path(os.environ.get("DATA_DIR", "/data"))
 async def get_info():
     return {"default_data_path": str(DATA_DIR)}
 
+@app.get("/api/logs")
+async def get_logs():
+    return {"logs": list(_log_handler.buffer)}
+
 @app.get("/api/viewer/folders")
 async def viewer_folders():
     if not DATA_DIR.exists():
@@ -438,6 +472,23 @@ async def viewer_files(folder: str):
     if not files:
         files = sorted(f.name for f in folder_path.glob("*.txt"))
     return {"files": files}
+
+@app.delete("/api/viewer/file")
+async def viewer_delete_file(folder: str, filename: str):
+    path = DATA_DIR / Path(folder).name / Path(filename).name
+    if not path.exists() or not path.is_file():
+        return {"status": "error", "message": "Archivo no encontrado"}
+    try:
+        path.unlink()
+        logger.info(f"Archivo eliminado: {folder}/{filename}")
+        # si la carpeta quedó vacía, la eliminamos también
+        folder_path = path.parent
+        if folder_path.is_dir() and not any(folder_path.iterdir()):
+            folder_path.rmdir()
+        return {"status": "ok", "message": f"Eliminado: {filename}"}
+    except Exception as e:
+        logger.error(f"Error eliminando {filename}: {e}")
+        return {"status": "error", "message": str(e)}
 
 @app.get("/api/viewer/file")
 async def viewer_file(folder: str, filename: str):

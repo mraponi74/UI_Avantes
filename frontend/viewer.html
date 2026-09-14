@@ -100,6 +100,15 @@ select#folder-select {
 }
 .back-link:hover { background:#0d47a1; }
 
+.delete-link {
+    display:block; width:100%; padding:10px; margin-top:8px;
+    font-size:14px; font-weight:bold; color:white;
+    background:#e53935; border:2px solid #b71c1c;
+    border-radius:4px; cursor:pointer; text-align:center;
+}
+.delete-link:hover { background:#c62828; }
+.delete-link:disabled { opacity:0.5; cursor:not-allowed; }
+
 /* Overlay de espera */
 #waiting-overlay {
     display:none; position:absolute; top:0; left:0; right:0; bottom:0;
@@ -173,6 +182,7 @@ select#folder-select {
         <button id="btn-prev">← Anterior</button>
         <button id="btn-next">Siguiente →</button>
       </div>
+      <button class="delete-link" id="btn-delete">🗑 Borrar archivo</button>
     </div>
 
     <!-- Corrección offset/dark -->
@@ -324,6 +334,18 @@ window.onresize = function() {
 function apiGet(url, cb) {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', API + url, true);
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+            try { cb(null, JSON.parse(xhr.responseText)); }
+            catch(e) { cb(e, null); }
+        }
+    };
+    xhr.send();
+}
+
+function apiDelete(url, cb) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('DELETE', API + url, true);
     xhr.onreadystatechange = function() {
         if (xhr.readyState === 4 && xhr.status === 200) {
             try { cb(null, JSON.parse(xhr.responseText)); }
@@ -634,6 +656,24 @@ function drawPlot() {
 }
 
 // ── Navegación ────────────────────────────────────────────────────────────────
+function deleteCurrentFile() {
+    var filename = files[fileIndex];
+    if (!filename) return;
+    if (!confirm('¿Borrar el archivo "' + filename + '"? Esta acción no se puede deshacer.')) return;
+
+    var btn = document.getElementById('btn-delete');
+    btn.disabled = true;
+    apiDelete('/api/viewer/file?folder=' + encodeURIComponent(currentFolder) +
+              '&filename=' + encodeURIComponent(filename), function(err, data) {
+        btn.disabled = false;
+        if (err || !data || data.status !== 'ok') {
+            alert('No se pudo borrar: ' + ((data && data.message) || 'error desconocido'));
+            return;
+        }
+        loadFolders();   // recarga carpetas/archivos (la carpeta pudo haber quedado vacía)
+    });
+}
+
 function navigate(delta) {
     if (!files.length) return;
     fileIndex = (fileIndex + delta + files.length) % files.length;
@@ -654,6 +694,7 @@ function setupEvents() {
     };
     document.getElementById('btn-prev').onclick = function() { navigate(-1); };
     document.getElementById('btn-next').onclick = function() { navigate(+1); };
+    document.getElementById('btn-delete').onclick = deleteCurrentFile;
 
     document.getElementById('btn-lambda-apply').onclick = function() {
         var mn = parseFloat(document.getElementById('lambda-min').value);

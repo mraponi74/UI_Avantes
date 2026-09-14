@@ -32,13 +32,31 @@
   .button.primary { background: #4CAF50; color: white; border-color: #2d6b2f; }
   .button.danger { background: #f44336; color: white; border-color: #9a0007; }
   .button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .status { font-size: 13px; background: white; border-radius: 4px; padding: 10px; margin-top: 10px; }
-  .status div { display: flex; justify-content: space-between; padding: 2px 0; }
-  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  .status { font-size: 17px; background: white; border-radius: 4px; padding: 14px; margin-top: 10px; }
+  .status div { display: flex; justify-content: space-between; padding: 5px 0; }
+  .dot { display: inline-block; width: 13px; height: 13px; border-radius: 50%; margin-right: 8px; }
   .dot.ok { background: #4CAF50; }
   .dot.bad { background: #f44336; }
-  .link { display: block; text-align: center; margin-top: 10px; font-size: 13px; }
+  .pill {
+    padding: 2px 10px; border-radius: 12px; font-weight: bold; color: white;
+  }
+  .pill.run-on  { background: #4CAF50; }
+  .pill.run-off { background: #f44336; }
+  .btn-viewer {
+    display: block; width: 100%; text-align: center; margin-top: 14px;
+    padding: 14px; font-size: 17px; font-weight: bold; text-decoration: none;
+    color: white; background: #00897B; border: 2px solid #00695C; border-radius: 4px;
+  }
+  .btn-viewer:active { background: #00695C; }
   .msg { font-size: 12px; margin-top: 8px; min-height: 16px; color: #555; }
+  .logs {
+    margin-top: 10px; height: 160px; overflow-y: auto; background: #1e1e1e; color: #ddd;
+    font-family: "Courier New", monospace; font-size: 12px; border-radius: 4px; padding: 8px;
+  }
+  .logs .line { white-space: pre-wrap; word-break: break-word; padding: 1px 0; }
+  .logs .t { color: #888; }
+  .logs .lvl-ERROR   { color: #ff6b6b; }
+  .logs .lvl-WARNING { color: #ffb84d; }
 </style>
 </head>
 <body>
@@ -47,6 +65,8 @@
     <h1>Avantes Spectrometer — Adquisición</h1>
     <canvas id="plot"></canvas>
     <div class="status" id="status"></div>
+    <h2>Logs del backend</h2>
+    <div class="logs" id="logs"></div>
   </div>
 
   <div class="right">
@@ -93,7 +113,7 @@
     <button class="button" id="btn-autoexpose">Auto-exposición</button>
     <button class="button" id="btn-reconnect">Reconectar</button>
 
-    <a class="link" href="viewer.html">Ver espectros guardados →</a>
+    <a class="btn-viewer" href="viewer.html">📁 Ver espectros guardados</a>
     <div class="msg" id="msg"></div>
   </div>
 </div>
@@ -102,6 +122,7 @@
 const $ = (id) => document.getElementById(id);
 const statusEl = $('status');
 const msgEl = $('msg');
+const logsEl = $('logs');
 const canvas = $('plot');
 const ctx = canvas.getContext('2d');
 
@@ -163,13 +184,28 @@ function renderStatus() {
   if (!lastStatus) { statusEl.innerHTML = 'Cargando estado...'; return; }
   const s = lastStatus;
   const dot = s.spectrometer_connected ? '<span class="dot ok"></span>' : '<span class="dot bad"></span>';
+  const runPill = s.is_running
+    ? `<span class="pill run-on">Corriendo${s.current_mode ? ' (' + s.current_mode + ')' : ''}</span>`
+    : `<span class="pill run-off">Detenida</span>`;
   statusEl.innerHTML = `
     <div><span>${dot}Espectrómetro</span><span>${s.spectrometer_connected ? 'Conectado' : 'Desconectado'}</span></div>
-    <div><span>Adquisición</span><span>${s.is_running ? 'Corriendo (' + (s.current_mode || '') + ')' : 'Detenida'}</span></div>
+    <div><span>Adquisición</span>${runPill}</div>
     <div><span>Espectros</span><span>${s.spectrum_count}</span></div>
     ${lastSpectrum ? `<div><span>Pico</span><span>${lastSpectrum.peak_counts} cnt (${lastSpectrum.sat_pct}%)</span></div>` : ''}
     ${s.last_error ? `<div><span>Error</span><span>${s.last_error}</span></div>` : ''}
   `;
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+}
+
+function renderLogs(lines) {
+  const nearBottom = logsEl.scrollHeight - logsEl.scrollTop - logsEl.clientHeight < 30;
+  logsEl.innerHTML = lines.map((l) =>
+    `<div class="line"><span class="t">${l.t}</span> <span class="lvl-${l.level}">${escapeHtml(l.msg)}</span></div>`
+  ).join('');
+  if (nearBottom) logsEl.scrollTop = logsEl.scrollHeight;
 }
 
 async function api(path, opts) {
@@ -239,8 +275,18 @@ async function pollStatus() {
     renderStatus();
   } catch (e) { /* backend no disponible aún */ }
 }
+
+async function pollLogs() {
+  try {
+    const r = await api('/api/logs');
+    renderLogs(r.logs || []);
+  } catch (e) { /* backend no disponible aún */ }
+}
+
 setInterval(pollStatus, 2000);
+setInterval(pollLogs, 2000);
 pollStatus();
+pollLogs();
 
 function connectWS() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
