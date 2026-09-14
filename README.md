@@ -106,7 +106,34 @@ docker compose up -d --force-recreate
 
 ## 🚀 Usage
 
-### 1. Build and start
+### 1. Get it
+
+**Recommended — clone the repo:**
+
+```bash
+git clone https://github.com/mraponi74/UI_Avantes.git
+cd UI_Avantes
+```
+
+This gets everything needed to run it: `docker-compose.yml`, the udev rule,
+`.env.example`, and the Avantes SDK installer used to build the image. No
+GitHub account needed — the repo is public, just `git clone` the URL above
+(if `git` isn't installed: `sudo apt install git` on Linux, or
+[Git for Windows](https://git-scm.com/download/win) / `xcode-select
+--install` on macOS).
+
+**Alternative — pull the prebuilt image directly**, without cloning:
+
+```bash
+docker pull mraponi74/ui-avantes:latest
+```
+
+This alone won't run the container correctly, though — the spectrometer
+needs the privileged USB bind mount and the `/data` volume that
+`docker-compose.yml` sets up (see step 2 below). Cloning the repo is the
+simpler path even if you don't intend to build the image yourself.
+
+### 2. Build and start
 
 ```bash
 docker compose up -d --build
@@ -142,7 +169,7 @@ HOST_PORT=8080 docker compose up -d
 
 If `HOST_PORT` isn't set either way, it defaults to `8000`.
 
-### 2. Open the frontend
+### 3. Open the frontend
 
 ```
 http://localhost:8000
@@ -150,7 +177,7 @@ http://localhost:8000
 
 From another PC on the same network: `http://<host-IP>:8000`.
 
-### 3. Workflow
+### 4. Workflow
 
 1. Configure parameters (Ti, mode, delay, averages, filter, sample name,
    save folder) — every change applies automatically, no separate button
