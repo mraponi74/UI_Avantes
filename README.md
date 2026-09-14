@@ -1,65 +1,65 @@
 <img src="docs/logo_DSR.jpeg" alt="División Sensado Remoto" width="220">
 
-# UI Avantes — Backend + frontend de adquisición para espectrómetros Avantes
+# UI Avantes — Acquisition backend + frontend for Avantes spectrometers
 
-Aplicación dockerizada para controlar un espectrómetro Avantes (AvaSpec SDK /
-`libavs.so`) y adquirir espectros desde el navegador. Sólo adquisición:
-tiempo de integración, delay entre espectros, promediación y filtro de
-suavizado. No controla motores ni shutter.
+Dockerized application to control an Avantes spectrometer (AvaSpec SDK /
+`libavs.so`) and acquire spectra from the browser. Acquisition only:
+integration time, delay between spectra, averaging and smoothing filter.
+Does not control motors or a shutter.
 
-## 🏗️ Arquitectura
+## 🏗️ Architecture
 
 ```
 ┌───────────────────────────────┐
-│         Contenedor Docker      │
+│         Docker container       │
 │         (Ubuntu 22.04)         │
 │                                 │
-│  FastAPI + libavs.so  ◄──USB──┼── Espectrómetro Avantes
-│  Frontend estático (HTML/JS)   │
+│  FastAPI + libavs.so  ◄──USB──┼── Avantes spectrometer
+│  Static frontend (HTML/JS)     │
 └──────────────┬──────────────────┘
                │ http://localhost:8000
-         Navegador (cualquier SO)
+         Browser (any OS)
 ```
 
-El backend corre dentro del contenedor y controla el hardware por USB; el
-frontend se sirve en el mismo puerto y se abre desde cualquier navegador que
-llegue a esa IP/puerto — no requiere hotspot ni red dedicada.
+The backend runs inside the container and controls the hardware over USB;
+the frontend is served on the same port and opens from any browser that can
+reach that IP/port — no hotspot or dedicated network required.
 
-## 📦 Requisitos
+## 📦 Requirements
 
-- Docker y Docker Compose.
-- Espectrómetro Avantes conectado por USB al equipo que corre Docker.
-- El instalador `vendor/avantes/libavs_9.14.0.0-0_amd64.deb` (incluido en el
-  repo) — SDK propietario de Avantes, no redistribuir fuera de este uso.
+- Docker and Docker Compose.
+- Avantes spectrometer connected via USB to the machine running Docker.
+- The installer `vendor/avantes/libavs_9.14.0.0-0_amd64.deb` (included in
+  the repo) — proprietary Avantes SDK, don't redistribute it outside this use.
 
-### Acceso USB según sistema operativo
+### USB access by operating system
 
-El contenedor necesita acceso directo al dispositivo USB del espectrómetro:
+The container needs direct access to the spectrometer's USB device:
 
-- **Linux (recomendado)**: Docker Engine nativo (`dockerd` como servicio del
-  sistema, `apt install docker.io`/`docker-ce`) corre sobre el kernel del
-  host y el bus USB se pasa directo al contenedor. Es la misma base que ya
-  funcionaba en la Raspberry Pi con Ubuntu, sólo que ahora corre en cualquier
-  PC/mini PC con Linux + Docker.
+- **Linux (recommended)**: native Docker Engine (`dockerd` as a system
+  service, `apt install docker.io`/`docker-ce`) runs on the host kernel and
+  the USB bus passes straight through to the container. Same base that
+  already worked on the Raspberry Pi with Ubuntu, just now it runs on any
+  PC/mini PC with Linux + Docker.
 
-  ⚠️ **Docker Desktop en Linux NO sirve para esto**: aunque el SO sea Linux,
-  Docker Desktop igual corre su motor dentro de una VM interna, así que
-  `/dev/bus/usb` dentro del contenedor queda desconectado del USB real del
-  host y el espectrómetro nunca aparece. Hay que usar el Docker Engine
-  nativo (`docker context use default`, o directamente desinstalar Desktop y
-  dejar sólo `docker.io`/`docker-ce` + el plugin `docker-compose-plugin`).
-- **Windows**: Docker Desktop corre sobre una VM (WSL2), así que el USB no es
-  visible por defecto. Hace falta compartir el dispositivo con
-  [`usbipd-win`](https://github.com/dorssel/usbipd-win) hacia WSL2 antes de
-  levantar el contenedor.
-- **macOS**: Docker Desktop también corre en una VM y no tiene un camino
-  estable de passthrough USB. No está soportado de forma directa; se
-  recomienda Linux o Windows+usbipd-win para uso real con el instrumento.
+  ⚠️ **Docker Desktop on Linux does NOT work for this**: even though the OS
+  is Linux, Docker Desktop still runs its engine inside an internal VM, so
+  `/dev/bus/usb` inside the container is disconnected from the host's real
+  USB and the spectrometer never shows up. Use the native Docker Engine
+  instead (`docker context use default`, or uninstall Desktop entirely and
+  keep just `docker.io`/`docker-ce` + the `docker-compose-plugin`).
+- **Windows**: Docker Desktop runs on a VM (WSL2), so USB isn't visible by
+  default. The device needs to be shared into WSL2 with
+  [`usbipd-win`](https://github.com/dorssel/usbipd-win) before starting the
+  container.
+- **macOS**: Docker Desktop also runs in a VM with no stable USB passthrough
+  path. Not directly supported; Linux or Windows+usbipd-win is recommended
+  for actual use with the instrument.
 
-### Regla udev (host Linux)
+### udev rule (Linux host)
 
-Para que el usuario del host tenga permiso sobre el dispositivo USB antes de
-pasarlo al contenedor:
+So the host user has permission on the USB device before it's passed to the
+container:
 
 ```bash
 sudo cp docker/99-avantes.rules /etc/udev/rules.d/
@@ -67,113 +67,120 @@ sudo udevadm control --reload-rules
 sudo udevadm trigger
 ```
 
-Desconectar y reconectar el espectrómetro después de instalar la regla.
+Unplug and replug the spectrometer after installing the rule.
 
-⚠️ **Si el espectrómetro se desconecta/reconecta o se corta la alimentación
-mientras el contenedor está corriendo**, Linux le asigna un nuevo número de
-dispositivo USB (ej: `Bus 004 Device 002` → `Bus 004 Device 009`). El
-contenedor fija los nodos `/dev/bus/usb/...` al crearse, así que se queda con
-el nodo viejo y el botón "Reconectar" del frontend no alcanza para verlo.
-Solución: recrear el contenedor (no alcanza con un simple restart):
+⚠️ **If the spectrometer disconnects/reconnects or loses power while the
+container is running**, Linux assigns it a new USB device number (e.g.
+`Bus 004 Device 002` → `Bus 004 Device 009`). The container fixes its
+`/dev/bus/usb/...` nodes at creation time, so it's left with the old node
+and the frontend's "Reconnect" button won't be enough to see it. Fix:
+recreate the container (a plain restart isn't enough):
 
 ```bash
 docker compose up -d --force-recreate
 ```
 
-## 🚀 Uso
+## 🚀 Usage
 
-### 1. Construir y levantar
+### 1. Build and start
 
 ```bash
 docker compose up -d --build
 ```
 
-Esto construye la imagen (Ubuntu 22.04 + SDK Avantes + backend + frontend) y
-levanta el contenedor con:
-- Puerto `8000` publicado en el host.
-- `./data` (en el host) montado en `/data` (dentro del contenedor) — ahí se
-  guardan los espectros.
-- El bus USB del host mapeado al contenedor.
+This builds the image (Ubuntu 22.04 + Avantes SDK + backend + frontend) and
+starts the container with:
+- Port `8000` published on the host.
+- `./data` (on the host) mounted at `/data` (inside the container) — spectra
+  are saved there.
+- The host's USB bus mapped into the container.
 
-También se puede usar la imagen publicada en Docker Hub sin buildear
-localmente — `docker-compose.yml` ya apunta a `mraponi74/ui-avantes:latest`,
-así que `docker compose up -d` (sin `--build`) la descarga y levanta directo.
+The image published on Docker Hub can also be used without building
+locally — `docker-compose.yml` already points at
+`mraponi74/ui-avantes:latest`, so `docker compose up -d` (without `--build`)
+pulls and starts it directly.
 
-Si el puerto `8000` ya está en uso en el host, `docker compose up` va a
-fallar ("port is already allocated"). Se puede cambiar sin editar el
-archivo, con la variable `HOST_PORT` — vía un archivo `.env`:
+If port `8000` is already in use on the host, `docker compose up` will fail
+("port is already allocated"). It can be changed without editing the file,
+via the `HOST_PORT` variable — through a `.env` file:
 
 ```bash
 cp .env.example .env
-# editar .env y poner HOST_PORT=8080 (por ejemplo)
+# edit .env and set HOST_PORT=8080 (for example)
 docker compose up -d
 ```
 
-o al vuelo, sin `.env`:
+or on the fly, without `.env`:
 
 ```bash
 HOST_PORT=8080 docker compose up -d
 ```
 
-Si no se define `HOST_PORT` de ninguna forma, se usa `8000` por defecto.
+If `HOST_PORT` isn't set either way, it defaults to `8000`.
 
-### 2. Abrir el frontend
+### 2. Open the frontend
 
 ```
 http://localhost:8000
 ```
 
-Desde otra PC en la misma red: `http://<IP-del-host>:8000`.
+From another PC on the same network: `http://<host-IP>:8000`.
 
-### 3. Flujo de trabajo
+### 3. Workflow
 
-1. Configurar parámetros (Ti, modo, delay, promedios, filtro, muestra,
-   carpeta de guardado) — cada cambio se aplica solo, no hace falta un botón
-   aparte.
-2. **Iniciar** arranca la grabación (`SINGLE` = un espectro, `CONTINUOUS` =
-   loop con el delay configurado); el contador "espectros acumulados"
-   muestra en vivo cuántos hay pendientes de guardar.
-3. El espectro se grafica en vivo vía WebSocket.
-4. **Detener** frena la grabación.
-5. **Guardar grabación** escribe el buffer de espectros acumulados en
-   `/data/<fecha>/`.
-6. **Ver espectros guardados** abre un visor para inspeccionar los archivos
-   `.txt` guardados.
+1. Configure parameters (Ti, mode, delay, averages, filter, sample name,
+   save folder) — every change applies automatically, no separate button
+   needed.
+2. **START** begins acquisition (`SINGLE` = one spectrum, `CONTINUOUS` = a
+   loop with the configured delay).
+3. The spectrum is plotted live over WebSocket.
+4. **Start recording** / **Stop recording** control what gets buffered for
+   saving, independently of START/STOP — check the backend log panel for a
+   live count of accumulated spectra.
+5. **Save recording** writes the accumulated spectra buffer to
+   `/data/<date>/`.
+6. **View saved spectra** opens a viewer to inspect the saved `.txt` files.
 
-### Ver logs
+### View logs
 
 ```bash
 docker compose logs -f
 ```
 
-### Detener
+### Stop
 
 ```bash
 docker compose down
 ```
 
-## 🌐 API REST
+## 🌐 REST API
 
-| Método | Endpoint | Descripción |
+| Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/api/status` | Estado del sistema |
-| POST | `/api/config` | Configurar parámetros de adquisición |
-| POST | `/api/start` | Iniciar adquisición |
-| POST | `/api/stop` | Detener adquisición |
-| POST | `/api/save` | Guardar el buffer de espectros adquiridos |
-| POST | `/api/spectrometer/reconnect` | Reintentar conexión USB con el espectrómetro |
-| GET | `/api/viewer/folders` | Carpetas de datos disponibles |
-| GET | `/api/viewer/files` | Archivos guardados en una carpeta |
-| GET | `/api/viewer/file` | Contenido de un archivo guardado |
-| WS | `/ws/spectrum` | Streaming de espectros en vivo |
+| GET | `/api/status` | System status |
+| POST | `/api/config` | Configure acquisition parameters |
+| POST | `/api/start` | Start acquisition |
+| POST | `/api/stop` | Stop acquisition |
+| POST | `/api/record/start` | Start buffering acquired spectra |
+| POST | `/api/record/stop` | Stop buffering acquired spectra |
+| POST | `/api/save` | Save the buffered spectra |
+| POST | `/api/spectrometer/reconnect` | Retry the USB connection to the spectrometer |
+| GET | `/api/spectrometer/calibration` | Current wavelength calibration status |
+| POST | `/api/spectrometer/calibration` | Save/apply a wavelength calibration for the connected unit |
+| GET | `/api/logs` | Recent backend log lines |
+| GET | `/api/viewer/folders` | Available data folders |
+| GET | `/api/viewer/files` | Saved files in a folder |
+| GET | `/api/viewer/file` | Contents of a saved file |
+| DELETE | `/api/viewer/file` | Delete a saved file |
+| WS | `/ws/spectrum` | Live spectrum streaming |
 
-## 📊 Formato de datos guardados
+## 📊 Saved data format
 
-Un archivo de texto por adquisición, en `/data/<YYYY-MM-DD>/spec_<muestra>_<fecha>_<hora>.txt`:
+One text file per acquisition, at `/data/<YYYY-MM-DD>/spec_<sample>_<date>_<time>.txt`:
 
 ```
 # Avantes Spectrometer Acquisition
-# Muestra:        ejemplo
+# Muestra:        example
 # Fecha:          2026-09-14
 # Hora_inicio:    10:30:00
 # Ti_ms:          100.0
@@ -188,7 +195,27 @@ wl      spec_1      spec_2      ...
 ...
 ```
 
-## 🐳 Publicar la imagen en Docker Hub
+(the header field names are in Spanish — they're written by the backend and
+read back by the built-in viewer; let us know if you'd like these
+translated too, it's a separate change from the UI.)
+
+## 🎯 Wavelength calibration
+
+Each Avantes unit has its own factory wavelength calibration. This app
+stores a per-serial-number calibration (4 polynomial coefficients + a
+wavelength crop range) in `/data/calibrations.json`, persisted across
+container recreations via the `/data` volume.
+
+- On connect, the backend reads the spectrometer's serial number and looks
+  it up in that file.
+- Known serial → calibration applied automatically.
+- Unknown serial → falls back to raw pixel index (not real wavelengths) and
+  the frontend shows a form to enter the 4 coefficients (measured with a
+  reference lamp/laser, same procedure as before) plus the wavelength crop
+  range; saving it writes the entry for that serial and applies it
+  immediately.
+
+## 🐳 Publish the image to Docker Hub
 
 ```bash
 docker login
@@ -196,7 +223,7 @@ docker build -t mraponi74/ui-avantes:latest .
 docker push mraponi74/ui-avantes:latest
 ```
 
-## 👨‍💻 Autor
+## 👨‍💻 Author
 
 <img src="docs/logo_DSR.jpeg" alt="División Sensado Remoto" width="160">
 
@@ -212,8 +239,7 @@ Buenos Aires, Argentina
 Tel: +54 11 4709 8100 ext. 1533
 www.citedef.gob.ar
 
-## 📄 Licencia
+## 📄 License
 
-Uso académico/científico. El SDK de Avantes (`vendor/avantes/`) es software
-propietario de Avantes BV, incluido únicamente para facilitar el build de
-esta imagen.
+Academic/scientific use. The Avantes SDK (`vendor/avantes/`) is proprietary
+software from Avantes BV, included only to make this image buildable.
