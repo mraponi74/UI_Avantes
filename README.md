@@ -196,18 +196,6 @@ docker build -t mraponi74/ui-avantes:latest .
 docker push mraponi74/ui-avantes:latest
 ```
 
-## 🛠️ Desarrollo local (sin Docker)
-
-```bash
-cd backend
-pip3 install -r requirements.txt
-python3 -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Requiere `libavs.so` instalado en el sistema (ver `vendor/avantes/`) para
-comunicarse con el hardware real; sin él, el backend corre en modo simulado
-(espectros aleatorios) para poder probar la interfaz.
-
 ## 👨‍💻 Autor
 
 <img src="docs/logo_DSR.jpeg" alt="División Sensado Remoto" width="160">
