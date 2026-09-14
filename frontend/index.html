@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Avantes Spectrometer</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: Arial, Helvetica, sans-serif;
+    background: #f0f0f0;
+    color: #222;
+  }
+  .app { display: flex; min-height: 100vh; flex-wrap: wrap; }
+  .left { flex: 1 1 600px; padding: 12px; }
+  .right { width: 340px; background: #e8e8e8; padding: 15px; }
+  #plot { width: 100%; height: 60vh; min-height: 320px; background: white; border: 1px solid #ccc; }
+  h1 { font-size: 18px; margin: 0 0 12px; }
+  h2 { font-size: 14px; margin: 16px 0 6px; text-transform: uppercase; color: #555; }
+  label { display: block; font-size: 13px; margin: 8px 0 3px; }
+  input, select {
+    width: 100%; padding: 8px; font-size: 14px; border: 1px solid #bbb; border-radius: 4px;
+  }
+  .row { display: flex; gap: 8px; }
+  .row > div { flex: 1; }
+  .button {
+    width: 100%; padding: 12px; margin: 5px 0; font-size: 15px; font-weight: bold;
+    border: 2px solid #333; background: #f8f8f8; cursor: pointer; border-radius: 4px;
+  }
+  .button:active { background: #d0d0d0; }
+  .button.primary { background: #4CAF50; color: white; border-color: #2d6b2f; }
+  .button.danger { background: #f44336; color: white; border-color: #9a0007; }
+  .button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .status { font-size: 13px; background: white; border-radius: 4px; padding: 10px; margin-top: 10px; }
+  .status div { display: flex; justify-content: space-between; padding: 2px 0; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; }
+  .dot.ok { background: #4CAF50; }
+  .dot.bad { background: #f44336; }
+  .link { display: block; text-align: center; margin-top: 10px; font-size: 13px; }
+  .msg { font-size: 12px; margin-top: 8px; min-height: 16px; color: #555; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="left">
+    <h1>Avantes Spectrometer — Adquisición</h1>
+    <canvas id="plot"></canvas>
+    <div class="status" id="status"></div>
+  </div>
+
+  <div class="right">
+    <h2>Parámetros del espectrómetro</h2>
+    <label for="ti_ms">Tiempo de integración (ms)</label>
+    <input type="number" id="ti_ms" value="100" min="1" step="1">
+
+    <label for="mode">Modo de adquisición</label>
+    <select id="mode">
+      <option value="SINGLE">Un espectro (SINGLE)</option>
+      <option value="CONTINUOUS">Continuo (CONTINUOUS)</option>
+    </select>
+
+    <div class="row">
+      <div>
+        <label for="delay_s">Delay entre espectros (s)</label>
+        <input type="number" id="delay_s" value="1" min="0" step="0.1">
+      </div>
+      <div>
+        <label for="num_averages">Promedios</label>
+        <input type="number" id="num_averages" value="1" min="1" step="1">
+      </div>
+    </div>
+
+    <label for="filter_size">Filtro de suavizado (px)</label>
+    <input type="number" id="filter_size" value="1" min="1" step="1">
+
+    <h2>Guardado</h2>
+    <label for="sample_name">Nombre de muestra</label>
+    <input type="text" id="sample_name" value="muestra">
+
+    <label for="save_path">Carpeta de guardado (dentro del contenedor)</label>
+    <input type="text" id="save_path" value="/data">
+
+    <button class="button" id="btn-set">SET — Aplicar configuración</button>
+
+    <div class="row">
+      <button class="button primary" id="btn-start">START</button>
+      <button class="button danger" id="btn-stop">STOP</button>
+    </div>
+    <button class="button" id="btn-save">SAVE</button>
+
+    <h2>Espectrómetro</h2>
+    <button class="button" id="btn-autoexpose">Auto-exposición</button>
+    <button class="button" id="btn-reconnect">Reconectar</button>
+
+    <a class="link" href="viewer.html">Ver espectros guardados →</a>
+    <div class="msg" id="msg"></div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const statusEl = $('status');
+const msgEl = $('msg');
+const canvas = $('plot');
+const ctx = canvas.getContext('2d');
+
+let lastStatus = null;
+let lastSpectrum = null;
+
+function resizeCanvas() {
+  canvas.width = canvas.clientWidth * devicePixelRatio;
+  canvas.height = canvas.clientHeight * devicePixelRatio;
+  drawPlot();
+}
+window.addEventListener('resize', resizeCanvas);
+
+function drawPlot() {
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, w, h);
+  if (!lastSpectrum) {
+    ctx.fillStyle = '#999';
+    ctx.font = `${14 * devicePixelRatio}px sans-serif`;
+    ctx.fillText('Sin datos — presioná START', 20 * devicePixelRatio, 30 * devicePixelRatio);
+    return;
+  }
+  const { wavelengths, intensities } = lastSpectrum;
+  const pad = 40 * devicePixelRatio;
+  const xs = wavelengths, ys = intensities;
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  const yMin = 0, yMax = Math.max(65535, ...ys);
+
+  const xScale = (x) => pad + (x - xMin) / (xMax - xMin) * (w - 2 * pad);
+  const yScale = (y) => h - pad - (y - yMin) / (yMax - yMin) * (h - 2 * pad);
+
+  // ejes
+  ctx.strokeStyle = '#ccc';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(pad, pad); ctx.lineTo(pad, h - pad); ctx.lineTo(w - pad, h - pad);
+  ctx.stroke();
+
+  // curva
+  ctx.strokeStyle = '#2d6b2f';
+  ctx.lineWidth = 1.5 * devicePixelRatio;
+  ctx.beginPath();
+  xs.forEach((x, i) => {
+    const px = xScale(x), py = yScale(ys[i]);
+    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+  });
+  ctx.stroke();
+
+  ctx.fillStyle = '#555';
+  ctx.font = `${11 * devicePixelRatio}px sans-serif`;
+  ctx.fillText(`${xMin.toFixed(0)} nm`, pad, h - pad + 14 * devicePixelRatio);
+  ctx.fillText(`${xMax.toFixed(0)} nm`, w - pad - 40 * devicePixelRatio, h - pad + 14 * devicePixelRatio);
+  ctx.fillText(`${yMax.toFixed(0)}`, 2 * devicePixelRatio, pad);
+}
+
+function renderStatus() {
+  if (!lastStatus) { statusEl.innerHTML = 'Cargando estado...'; return; }
+  const s = lastStatus;
+  const dot = s.spectrometer_connected ? '<span class="dot ok"></span>' : '<span class="dot bad"></span>';
+  statusEl.innerHTML = `
+    <div><span>${dot}Espectrómetro</span><span>${s.spectrometer_connected ? 'Conectado' : 'Desconectado'}</span></div>
+    <div><span>Adquisición</span><span>${s.is_running ? 'Corriendo (' + (s.current_mode || '') + ')' : 'Detenida'}</span></div>
+    <div><span>Espectros</span><span>${s.spectrum_count}</span></div>
+    ${lastSpectrum ? `<div><span>Pico</span><span>${lastSpectrum.peak_counts} cnt (${lastSpectrum.sat_pct}%)</span></div>` : ''}
+    ${s.last_error ? `<div><span>Error</span><span>${s.last_error}</span></div>` : ''}
+  `;
+}
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  return res.json();
+}
+
+function buildConfig() {
+  return {
+    mode: $('mode').value,
+    spec_params: {
+      ti_ms: parseFloat($('ti_ms').value),
+      delay_s: parseFloat($('delay_s').value),
+      num_averages: parseInt($('num_averages').value, 10),
+      filter_size: parseInt($('filter_size').value, 10),
+    },
+    metadata: {
+      save_path: $('save_path').value,
+      sample_name: $('sample_name').value,
+    },
+  };
+}
+
+$('btn-set').onclick = async () => {
+  const r = await api('/api/config', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(buildConfig()),
+  });
+  msgEl.textContent = r.message || JSON.stringify(r);
+};
+
+$('btn-start').onclick = async () => {
+  const r = await api('/api/start', { method: 'POST' });
+  msgEl.textContent = r.message || JSON.stringify(r);
+};
+
+$('btn-stop').onclick = async () => {
+  const r = await api('/api/stop', { method: 'POST' });
+  msgEl.textContent = r.message || JSON.stringify(r);
+};
+
+$('btn-save').onclick = async () => {
+  const r = await api('/api/save', { method: 'POST' });
+  msgEl.textContent = r.message || JSON.stringify(r);
+};
+
+$('btn-autoexpose').onclick = async () => {
+  msgEl.textContent = 'Auto-exponiendo...';
+  const r = await api('/api/spectrometer/auto_expose', { method: 'POST' });
+  if (r.status === 'ok') {
+    $('ti_ms').value = r.t_exp_ms;
+    msgEl.textContent = `Ti ajustado a ${r.t_exp_ms} ms (sat ${r.sat_pct}%)`;
+  } else {
+    msgEl.textContent = r.message || JSON.stringify(r);
+  }
+};
+
+$('btn-reconnect').onclick = async () => {
+  msgEl.textContent = 'Reconectando...';
+  const r = await api('/api/spectrometer/reconnect', { method: 'POST' });
+  msgEl.textContent = r.message || JSON.stringify(r);
+};
+
+async function pollStatus() {
+  try {
+    lastStatus = await api('/api/status');
+    renderStatus();
+  } catch (e) { /* backend no disponible aún */ }
+}
+setInterval(pollStatus, 2000);
+pollStatus();
+
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws/spectrum`);
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
+    if (msg.type === 'spectrum') {
+      lastSpectrum = msg;
+      drawPlot();
+      renderStatus();
+    }
+  };
+  ws.onclose = () => setTimeout(connectWS, 3000);
+  ws.onerror = () => ws.close();
+}
+
+resizeCanvas();
+connectWS();
+</script>
+</body>
+</html>

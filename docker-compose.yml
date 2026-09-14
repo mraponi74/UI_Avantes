@@ -1,0 +1,18 @@
+services:
+  avantes-ui:
+    build: .
+    image: avantes-spectrometer-ui:latest
+    container_name: avantes-spectrometer-ui
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data
+    devices:
+      # Acceso al bus USB completo (Linux). El espectrómetro Avantes puede
+      # cambiar de bus/dispositivo al reconectar, por eso se mapea el bus
+      # entero en vez de un nodo puntual (ej: /dev/bus/usb/001/004).
+      - "/dev/bus/usb:/dev/bus/usb"
+    # Si el mapeo de /dev/bus/usb no alcanza (permisos del host), se puede
+    # habilitar temporalmente el modo privilegiado en su lugar:
+    # privileged: true

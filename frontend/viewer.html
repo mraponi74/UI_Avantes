@@ -1,0 +1,835 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+<title>Visor de espectros — Avantes</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: Arial, sans-serif; background:#f0f0f0; overflow:hidden; }
+
+.app-container {
+    display:flex; height:100vh; overflow:hidden;
+}
+.left-panel {
+    flex:1; background:white; padding:10px; position:relative;
+}
+#spectrum-canvas {
+    width:100%; height:calc(100vh - 20px);
+    border:1px solid #ddd; background:white;
+}
+.right-panel {
+    width:360px; background:#e8e8e8; padding:12px; overflow-y:auto;
+}
+
+/* Secciones */
+.section {
+    background:white; padding:12px; margin:8px 0;
+    border-radius:6px; border:1px solid #ddd;
+}
+.section-title {
+    font-size:15px; font-weight:bold; margin-bottom:8px;
+    border-bottom:2px solid #4CAF50; padding-bottom:4px;
+}
+
+/* Selector de carpeta */
+select#folder-select {
+    width:100%; padding:8px; font-size:14px;
+    border:2px solid #ccc; border-radius:4px; background:white;
+}
+
+/* Lista de archivos */
+#file-list {
+    max-height:240px; overflow-y:auto;
+    border:1px solid #ccc; border-radius:4px; background:white;
+    margin-bottom:8px;
+}
+.file-item {
+    padding:7px 10px; cursor:pointer; font-size:12px;
+    border-bottom:1px solid #eee; font-family:monospace;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.file-item:hover   { background:#e3f2fd; }
+.file-item.active  { background:#1565C0; color:white; font-weight:bold; }
+.file-count        { font-size:11px; color:#888; text-align:right; margin-top:2px; }
+
+/* Navegación */
+.nav-row {
+    display:flex; gap:8px; margin-top:4px;
+}
+.nav-row button {
+    flex:1; padding:10px; font-size:14px; font-weight:bold;
+    border:2px solid #333; background:#f8f8f8; cursor:pointer;
+    border-radius:4px;
+}
+.nav-row button:hover { background:#d0d0d0; }
+
+/* Rangos */
+.range-row {
+    display:flex; align-items:center; gap:5px; flex-wrap:wrap; margin-bottom:6px;
+}
+.range-row label { font-size:12px; font-weight:600; white-space:nowrap; }
+.range-row input  {
+    width:72px; padding:5px; font-size:13px;
+    border:2px solid #ccc; border-radius:4px;
+}
+.range-row span { font-size:11px; color:#777; }
+.range-btns { display:flex; gap:6px; }
+.range-btns button {
+    flex:1; padding:7px; font-size:13px; font-weight:bold;
+    border:2px solid #333; background:#f8f8f8; cursor:pointer; border-radius:4px;
+}
+.range-btns button:hover { background:#d0d0d0; }
+
+/* Metadata */
+#meta-box {
+    font-family:monospace; font-size:11px; line-height:1.6;
+    background:#f9f9f9; border:1px solid #ddd; border-radius:4px;
+    padding:8px; max-height:200px; overflow-y:auto;
+}
+#meta-box .meta-row { display:flex; gap:4px; }
+#meta-box .meta-key { color:#1565C0; min-width:100px; font-weight:bold; }
+#meta-box .meta-val { color:#333; }
+
+/* Link back */
+.back-link {
+    display:block; width:100%; padding:10px; margin-top:4px;
+    font-size:14px; font-weight:bold; color:white;
+    background:#1565C0; border:2px solid #0d47a1;
+    border-radius:4px; cursor:pointer; text-align:center;
+}
+.back-link:hover { background:#0d47a1; }
+
+/* Overlay de espera */
+#waiting-overlay {
+    display:none; position:absolute; top:0; left:0; right:0; bottom:0;
+    background:rgba(255,255,255,0.96); z-index:10;
+    flex-direction:column; align-items:center; justify-content:center;
+}
+#waiting-overlay.visible { display:flex; }
+.atom-anim { position:relative; width:90px; height:90px; }
+.atom-nucleus {
+    position:absolute; width:18px; height:18px;
+    background:#2196F3; border-radius:50%;
+    top:50%; left:50%; transform:translate(-50%,-50%);
+    box-shadow:0 0 10px #2196F3;
+}
+.atom-orbit {
+    position:absolute; width:84px; height:32px;
+    top:50%; left:50%; margin:-16px 0 0 -42px;
+    border:2.5px solid rgba(33,150,243,0.5); border-radius:50%;
+}
+.atom-orbit .atom-electron {
+    position:absolute; width:9px; height:9px;
+    background:#ff5722; border-radius:50%;
+    top:50%; left:-5px; transform:translateY(-50%);
+    box-shadow:0 0 5px #ff5722;
+}
+.atom-orbit1 { animation:aspin1 1.5s linear infinite; }
+.atom-orbit2 { animation:aspin2 1.5s linear infinite; }
+.atom-orbit3 { animation:aspin3 1.5s linear infinite; }
+@keyframes aspin1 { 0%{transform:rotate(0deg)}   100%{transform:rotate(360deg)} }
+@keyframes aspin2 { 0%{transform:rotate(60deg)}  100%{transform:rotate(420deg)} }
+@keyframes aspin3 { 0%{transform:rotate(-60deg)} 100%{transform:rotate(300deg)} }
+.waiting-label { margin-top:22px; font-size:16px; color:#666; font-weight:bold; }
+</style>
+</head>
+<body>
+<div class="app-container">
+
+  <!-- ── CANVAS ── -->
+  <div class="left-panel">
+    <canvas id="spectrum-canvas"></canvas>
+    <div id="waiting-overlay" class="visible">
+      <div class="atom-anim">
+        <div class="atom-nucleus"></div>
+        <div class="atom-orbit atom-orbit1"><div class="atom-electron"></div></div>
+        <div class="atom-orbit atom-orbit2"><div class="atom-electron"></div></div>
+        <div class="atom-orbit atom-orbit3"><div class="atom-electron"></div></div>
+      </div>
+      <div class="waiting-label">Seleccioná un archivo...</div>
+    </div>
+  </div>
+
+  <!-- ── PANEL DERECHO ── -->
+  <div class="right-panel">
+
+    <button class="back-link" onclick="window.location.href='/'">← Volver al control</button>
+
+    <!-- Carpeta -->
+    <div class="section">
+      <div class="section-title">Carpeta de datos</div>
+      <select id="folder-select">
+        <option value="">— cargando —</option>
+      </select>
+    </div>
+
+    <!-- Archivos -->
+    <div class="section">
+      <div class="section-title">Archivos</div>
+      <div id="file-list"><div class="file-item" style="color:#aaa">Sin archivos</div></div>
+      <div class="file-count" id="file-count"></div>
+      <div class="nav-row">
+        <button id="btn-prev">← Anterior</button>
+        <button id="btn-next">Siguiente →</button>
+      </div>
+    </div>
+
+    <!-- Corrección offset/dark -->
+    <div class="section" id="correction-section" style="display:none;">
+      <div class="section-title">Señal</div>
+      <div class="range-row" style="justify-content:space-between;">
+        <label for="correction-toggle" style="font-size:13px;font-weight:600;">Ver corregida (offset/dark)</label>
+        <input type="checkbox" id="correction-toggle">
+      </div>
+      <div style="font-size:11px;color:#888;margin-top:2px;">Sin marcar: cruda, tal cual se guardó.</div>
+    </div>
+
+    <!-- Rango lambda -->
+    <div class="section" style="font-size:11px;color:#888;line-height:1.5;">
+      Arrastrá sobre el gráfico para hacer zoom a esa región · doble-click para resetear · pasá el mouse para ver λ · click sobre una curva para identificar el ángulo · con un punto seleccionado, ←/→ lo mueven sobre esa curva.
+    </div>
+
+    <div class="section">
+      <div class="section-title">Rango λ</div>
+      <div class="range-row">
+        <label>min:</label>
+        <input type="number" id="lambda-min" value="285" step="5">
+        <label>max:</label>
+        <input type="number" id="lambda-max" value="545" step="5">
+        <span>nm</span>
+      </div>
+      <div class="range-btns">
+        <button id="btn-lambda-apply">Aplicar</button>
+        <button id="btn-lambda-reset">Reset</button>
+      </div>
+    </div>
+
+    <!-- Rango cuentas -->
+    <div class="section">
+      <div class="section-title">Rango cuentas</div>
+      <div class="range-row">
+        <label>min:</label>
+        <input type="number" id="counts-min" value="0" step="100">
+        <label>max:</label>
+        <input type="number" id="counts-max" value="65535" step="100">
+      </div>
+      <div class="range-btns">
+        <button id="btn-counts-apply">Aplicar</button>
+        <button id="btn-counts-reset">Reset</button>
+      </div>
+    </div>
+
+    <!-- Metadata -->
+    <div class="section">
+      <div class="section-title">Metadatos</div>
+      <div id="meta-box"><span style="color:#aaa">—</span></div>
+    </div>
+
+  </div><!-- /right-panel -->
+</div><!-- /app-container -->
+
+<script>
+var API = 'http://' + window.location.hostname + ':8000';
+
+var canvas  = document.getElementById('spectrum-canvas');
+var ctx     = canvas.getContext('2d');
+var overlay = document.getElementById('waiting-overlay');
+
+var currentData   = null;   // {meta, wavelengths, spectra}
+var currentFolder = '';
+var files         = [];
+var fileIndex     = 0;
+
+var plotLambdaMin = null;
+var plotLambdaMax = null;
+var plotCountsMin = null;
+var plotCountsMax = null;
+
+var correctionOn = false;   // false = cruda (como se guarda), true = corregida offset/dark
+
+// ── Corrección offset/dark (cliente) ────────────────────────────────────────
+function parseFloatList(s) {
+    if (!s) return [];
+    var m = String(s).match(/[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?/g);
+    return m ? m.map(Number) : [];
+}
+
+function computeCorrectedSpectra(data) {
+    var dark = data.dark_current, offset = data.offset;
+    if (!dark || !offset) return null;
+    var order = data.angle_order && data.angle_order.length ? data.angle_order : Object.keys(data.spectra);
+    var meta = data.meta || {};
+    var tExpList  = parseFloatList(meta.Ti_ms);
+    var darkTiList = parseFloatList(meta.Dark_Ti_ms);
+    if (!darkTiList.length) return null;
+    var darkTiMs = darkTiList[0];
+
+    var out = {};
+    order.forEach(function(ang, idx) {
+        var raw = data.spectra[ang];
+        if (!raw) return;
+        var tExp = tExpList.length === order.length ? tExpList[idx] : (tExpList[0] !== undefined ? tExpList[0] : darkTiMs);
+        var corr = new Array(raw.length);
+        for (var i = 0; i < raw.length; i++) {
+            corr[i] = raw[i] - offset[i] - (tExp / darkTiMs) * (dark[i] - offset[i]);
+        }
+        out[ang] = corr;
+    });
+    return out;
+}
+
+function getDisplaySpectra() {
+    if (!currentData) return {};
+    if (correctionOn && currentData._corrected) return currentData._corrected;
+    return currentData.spectra;
+}
+
+var lastLayout  = null;   // {mg,pw,ph,minX,maxX,minY,maxY,rX,rY,wl,sp,angles}
+var clickMarker = null;   // {ang, wl, val, x, y, color}
+var hoverPoint  = null;   // {x, wl} — crosshair del mouse
+var isDragging  = false;
+var dragStart   = null;   // {x,y} — arrastre para zoom por selección (ROI)
+var dragCurrent = null;
+
+var SCAN_COLORS = [
+    '#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6',
+    '#1abc9c','#e67e22','#34495e','#16a085','#c0392b',
+    '#8e44ad','#d35400',
+];
+var BANDS = [
+    {lo:280,hi:320,color:'#cc2222',label:'UVB'},
+    {lo:320,hi:400,color:'#7733cc',label:'UVA'},
+    {lo:400,hi:560,color:'#999900',label:'VIS'},
+];
+
+// ── Canvas init ───────────────────────────────────────────────────────────────
+window.onload = function() {
+    var container = canvas.parentElement;
+    canvas.width  = container.offsetWidth  - 20;
+    canvas.height = container.offsetHeight - 20;
+    loadFolders();
+    setupEvents();
+    document.addEventListener('keydown', onKey);
+};
+
+window.onresize = function() {
+    var container = canvas.parentElement;
+    canvas.width  = container.offsetWidth  - 20;
+    canvas.height = container.offsetHeight - 20;
+    drawPlot();
+};
+
+// ── API helpers ───────────────────────────────────────────────────────────────
+function apiGet(url, cb) {
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', API + url, true);
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+            try { cb(null, JSON.parse(xhr.responseText)); }
+            catch(e) { cb(e, null); }
+        }
+    };
+    xhr.send();
+}
+
+// ── Carga de datos ────────────────────────────────────────────────────────────
+function loadFolders() {
+    apiGet('/api/viewer/folders', function(err, data) {
+        if (err || !data.folders) return;
+        var sel = document.getElementById('folder-select');
+        sel.innerHTML = '<option value="">— elegir carpeta —</option>';
+        data.folders.forEach(function(f) {
+            var opt = document.createElement('option');
+            opt.value = opt.textContent = f;
+            sel.appendChild(opt);
+        });
+        // Auto-seleccionar la más reciente
+        if (data.folders.length) {
+            sel.value = data.folders[0];
+            loadFiles(data.folders[0]);
+        }
+    });
+}
+
+function loadFiles(folder) {
+    currentFolder = folder;
+    document.getElementById('file-list').innerHTML =
+        '<div class="file-item" style="color:#aaa">Cargando...</div>';
+    apiGet('/api/viewer/files?folder=' + encodeURIComponent(folder), function(err, data) {
+        files = (err || !data.files) ? [] : data.files;
+        renderFileList();
+        if (files.length) {
+            fileIndex = 0;
+            loadFile(files[0]);
+        } else {
+            currentData = null;
+            drawPlot();
+        }
+    });
+}
+
+function loadFile(filename) {
+    clickMarker = null;
+    overlay.className = 'visible';
+    overlay.querySelector('.waiting-label').textContent = 'Cargando...';
+    apiGet('/api/viewer/file?folder=' + encodeURIComponent(currentFolder) +
+           '&filename=' + encodeURIComponent(filename), function(err, data) {
+        if (err || data.error) {
+            overlay.querySelector('.waiting-label').textContent = 'Error al leer archivo';
+            return;
+        }
+        currentData = data;
+        currentData._corrected = computeCorrectedSpectra(data);
+        var hasCorrection = !!currentData._corrected;
+        document.getElementById('correction-section').style.display = hasCorrection ? '' : 'none';
+        if (!hasCorrection) correctionOn = false;
+        document.getElementById('correction-toggle').checked = correctionOn;
+        renderMeta(data.meta);
+        renderFileList();   // resalta el activo
+        overlay.className = '';
+        drawPlot();
+    });
+}
+
+// ── Lista de archivos ─────────────────────────────────────────────────────────
+function renderFileList() {
+    var list = document.getElementById('file-list');
+    if (!files.length) {
+        list.innerHTML = '<div class="file-item" style="color:#aaa">Sin archivos</div>';
+        document.getElementById('file-count').textContent = '';
+        return;
+    }
+    list.innerHTML = '';
+    files.forEach(function(name, i) {
+        var div = document.createElement('div');
+        div.className = 'file-item' + (i === fileIndex ? ' active' : '');
+        div.textContent = name;
+        div.title = name;
+        div.onclick = function() { fileIndex = i; loadFile(name); };
+        list.appendChild(div);
+    });
+    // Scroll al activo
+    var active = list.querySelector('.active');
+    if (active) active.scrollIntoView({block:'nearest'});
+    document.getElementById('file-count').textContent =
+        (fileIndex + 1) + ' / ' + files.length;
+}
+
+// ── Metadatos ─────────────────────────────────────────────────────────────────
+function renderMeta(meta) {
+    var box = document.getElementById('meta-box');
+    if (!meta || !Object.keys(meta).length) { box.innerHTML='<span style="color:#aaa">—</span>'; return; }
+    var keys = ['Muestra','Fecha','Hora_inicio','Ti_ms','Lambda_min_nm','Lambda_max_nm',
+                'Promedios','Filtro_px','N_espectros'];
+    var html = '';
+    keys.forEach(function(k) {
+        if (meta[k] !== undefined) {
+            html += '<div class="meta-row"><span class="meta-key">' + k + '</span>' +
+                    '<span class="meta-val">' + meta[k] + '</span></div>';
+        }
+    });
+    box.innerHTML = html || '<span style="color:#aaa">—</span>';
+}
+
+// ── Dibujo ────────────────────────────────────────────────────────────────────
+function drawPlot() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    if (!currentData) return;
+
+    var mg  = {top:50, right:20, bottom:55, left:72};
+    var pw  = canvas.width  - mg.left - mg.right;
+    var ph  = canvas.height - mg.top  - mg.bottom;
+    var wl  = currentData.wavelengths;
+    var sp  = getDisplaySpectra();   // {angle: [values]} — cruda o corregida según el toggle
+    var lMin = plotLambdaMin, lMax = plotLambdaMax;
+
+    // Rango de datos visible
+    var allWL = [], allI = [];
+    Object.keys(sp).forEach(function(ang) {
+        var vals = sp[ang];
+        for (var i = 0; i < wl.length; i++) {
+            if ((lMin!==null && wl[i]<lMin)||(lMax!==null && wl[i]>lMax)) continue;
+            allWL.push(wl[i]); allI.push(vals[i]);
+        }
+    });
+    if (!allWL.length) return;
+
+    var minX = lMin!==null ? lMin : Math.min.apply(null,allWL);
+    var maxX = lMax!==null ? lMax : Math.max.apply(null,allWL);
+    var minY = plotCountsMin!==null ? plotCountsMin : Math.min.apply(null,allI);
+    var maxY = plotCountsMax!==null ? plotCountsMax : Math.max.apply(null,allI);
+    var rX   = maxX-minX || 1;
+    var rY   = maxY-minY || 1;
+
+    function toX(wli) { return mg.left + (wli-minX)/rX*pw; }
+    function toY(v)   { return mg.top  + ph - (v-minY)/rY*ph; }
+
+    // ── Bandas espectrales ────────────────────────────────────────────────────
+    BANDS.forEach(function(b) {
+        var x1 = toX(Math.max(b.lo, minX));
+        var x2 = toX(Math.min(b.hi, maxX));
+        if (x2 <= x1) return;
+        ctx.fillStyle = b.color + '18';   // ~10% opacity hex
+        ctx.fillRect(x1, mg.top, x2-x1, ph);
+        ctx.fillStyle = b.color;
+        ctx.fillRect(x1, mg.top+ph, x2-x1, 4);
+        ctx.font = 'bold 10px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(b.label, (x1+x2)/2, mg.top+ph+16);
+    });
+
+    // ── Ejes ──────────────────────────────────────────────────────────────────
+    ctx.strokeStyle = '#333'; ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(mg.left, mg.top);
+    ctx.lineTo(mg.left, mg.top+ph);
+    ctx.lineTo(mg.left+pw, mg.top+ph);
+    ctx.stroke();
+
+    // Grid Y + etiquetas Y
+    ctx.font = '11px Arial'; ctx.fillStyle = '#666'; ctx.textAlign = 'right';
+    for (var k = 0; k <= 5; k++) {
+        var v    = minY + (rY/5)*k;
+        var ypos = toY(v);
+        ctx.fillText(Math.round(v), mg.left-5, ypos+4);
+        ctx.strokeStyle = '#e8e8e8'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(mg.left,ypos); ctx.lineTo(mg.left+pw,ypos); ctx.stroke();
+    }
+
+    // Etiquetas X
+    ctx.fillStyle = '#666'; ctx.textAlign = 'center';
+    for (var k = 0; k <= 6; k++) {
+        var wlv  = minX + (rX/6)*k;
+        var xpos = toX(wlv);
+        ctx.fillText(Math.round(wlv), xpos, mg.top+ph+14);
+    }
+    ctx.fillText('Longitud de onda (nm)', mg.left+pw/2, mg.top+ph+32);
+    ctx.save();
+    ctx.translate(16, mg.top+ph/2);
+    ctx.rotate(-Math.PI/2);
+    ctx.fillText('Cuentas', 0, 0);
+    ctx.restore();
+
+    // ── Curvas (con clip) ─────────────────────────────────────────────────────
+    ctx.save();
+    ctx.beginPath(); ctx.rect(mg.left, mg.top, pw, ph); ctx.clip();
+
+    var angles = Object.keys(sp);
+    angles.forEach(function(ang, idx) {
+        var vals  = sp[ang];
+        var color = SCAN_COLORS[idx % SCAN_COLORS.length];
+        ctx.strokeStyle = color; ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        var started = false;
+        for (var i = 0; i < wl.length; i++) {
+            if ((lMin!==null&&wl[i]<lMin)||(lMax!==null&&wl[i]>lMax)) continue;
+            var x = toX(wl[i]), y = toY(vals[i]);
+            if (!started) { ctx.moveTo(x,y); started=true; } else ctx.lineTo(x,y);
+        }
+        ctx.stroke();
+    });
+    ctx.restore();
+
+    // ── Leyenda ───────────────────────────────────────────────────────────────
+    var legX = mg.left + pw - 10;
+    var legY = mg.top + 14;
+    var rowH = 20;
+    // fondo
+    ctx.fillStyle = 'rgba(255,255,255,0.88)';
+    ctx.fillRect(legX - angles.length*0 - 120, legY-14, 130, angles.length*rowH+6);
+    ctx.strokeStyle = '#ccc'; ctx.lineWidth=1;
+    ctx.strokeRect(legX - 120, legY-14, 130, angles.length*rowH+6);
+
+    angles.forEach(function(ang, idx) {
+        var color = SCAN_COLORS[idx % SCAN_COLORS.length];
+        var y = legY + idx*rowH;
+        ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.moveTo(legX-116,y); ctx.lineTo(legX-96,y); ctx.stroke();
+        ctx.fillStyle = '#333'; ctx.font = 'bold 12px Arial'; ctx.textAlign = 'left';
+        ctx.fillText(ang + '°', legX-90, y+5);
+    });
+
+    // ── Título ────────────────────────────────────────────────────────────────
+    var meta = currentData.meta;
+    var ttl  = [meta.Volcan, meta.Fecha, meta.Hora_inicio].filter(Boolean).join('   ');
+    var fn   = files[fileIndex] || '';
+    ctx.fillStyle = '#333'; ctx.textAlign = 'left'; ctx.font = 'bold 12px Arial';
+    ctx.fillText(fn, mg.left, 20);
+    ctx.font = '11px Arial'; ctx.fillStyle = '#666';
+    ctx.fillText(ttl, mg.left, 36);
+
+    // ── Info box Ti + N ───────────────────────────────────────────────────────
+    var ti  = meta.Ti_ms || '?';
+    var nsp = meta.N_espectros || '?';
+    var npr = meta.Promedios   || '?';
+    var info = 'Ti: ' + ti + ' ms    N: ' + nsp + '    Prom: ' + npr;
+    ctx.font = '10px monospace'; ctx.fillStyle = '#555';
+    ctx.textAlign = 'right';
+    ctx.fillText(info, mg.left+pw, 20);
+
+    // ── Layout para el hit-test de click ────────────────────────────────────
+    lastLayout = { mg:mg, pw:pw, ph:ph, minX:minX, maxX:maxX, minY:minY, maxY:maxY,
+                   rX:rX, rY:rY, wl:wl, sp:sp, angles:angles };
+
+    // ── Marcador del ángulo clickeado (recalculado en cada dibujo → sigue
+    //    correctamente al zoom/resize, no queda con coordenadas viejas) ──────
+    if (clickMarker && wl[clickMarker.idx] >= minX && wl[clickMarker.idx] <= maxX) {
+        var mWl  = wl[clickMarker.idx];
+        var mVal = sp[clickMarker.ang][clickMarker.idx];
+        var mx2  = toX(mWl), my2 = toY(mVal);
+
+        ctx.save();
+        ctx.beginPath(); ctx.rect(mg.left, mg.top, pw, ph); ctx.clip();
+        ctx.fillStyle = clickMarker.color;
+        ctx.beginPath(); ctx.arc(mx2, my2, 5, 0, 2*Math.PI); ctx.fill();
+        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
+        ctx.restore();
+
+        var label = clickMarker.ang + '°   ' + mWl.toFixed(2) + ' nm   ' +
+                    Math.round(mVal) + ' cta';
+        ctx.font = 'bold 12px Arial';
+        var tw = ctx.measureText(label).width;
+        var bx = Math.min(Math.max(mx2 - tw/2 - 8, mg.left), mg.left+pw-tw-16);
+        var by = my2 - 32;
+        if (by < mg.top) by = my2 + 14;
+        ctx.fillStyle = clickMarker.color;
+        ctx.fillRect(bx, by, tw+16, 22);
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+        ctx.fillText(label, bx+8, by+15);
+    }
+
+    // ── Rectángulo de selección (arrastrar para hacer zoom / ROI) ───────────
+    if (isDragging && dragStart && dragCurrent) {
+        var rx1 = Math.max(Math.min(dragStart.x, dragCurrent.x), mg.left);
+        var rx2 = Math.min(Math.max(dragStart.x, dragCurrent.x), mg.left+pw);
+        var ry1 = Math.max(Math.min(dragStart.y, dragCurrent.y), mg.top);
+        var ry2 = Math.min(Math.max(dragStart.y, dragCurrent.y), mg.top+ph);
+        ctx.fillStyle = 'rgba(33,150,243,0.15)';
+        ctx.fillRect(rx1, ry1, rx2-rx1, ry2-ry1);
+        ctx.strokeStyle = '#2196F3'; ctx.lineWidth = 1.2; ctx.setLineDash([4,3]);
+        ctx.strokeRect(rx1, ry1, rx2-rx1, ry2-ry1);
+        ctx.setLineDash([]);
+    }
+
+    // ── Crosshair: línea vertical + λ bajo el mouse ──────────────────────────
+    if (hoverPoint && !isDragging && hoverPoint.x >= mg.left && hoverPoint.x <= mg.left+pw) {
+        var hx = hoverPoint.x;
+        ctx.strokeStyle = '#999'; ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+        ctx.beginPath(); ctx.moveTo(hx, mg.top); ctx.lineTo(hx, mg.top+ph); ctx.stroke();
+        ctx.setLineDash([]);
+
+        var lbl = hoverPoint.wl.toFixed(2) + ' nm';
+        ctx.font = 'bold 11px monospace';
+        var lw = ctx.measureText(lbl).width;
+        var lx = Math.min(Math.max(hx - lw/2 - 6, mg.left), mg.left+pw-lw-12);
+        ctx.fillStyle = 'rgba(51,51,51,0.9)';
+        ctx.fillRect(lx, mg.top-2, lw+12, 16);
+        ctx.fillStyle = '#fff'; ctx.textAlign = 'left';
+        ctx.fillText(lbl, lx+6, mg.top+10);
+    }
+}
+
+// ── Navegación ────────────────────────────────────────────────────────────────
+function navigate(delta) {
+    if (!files.length) return;
+    fileIndex = (fileIndex + delta + files.length) % files.length;
+    loadFile(files[fileIndex]);
+}
+
+function onKey(e) {
+    if (e.key === 'ArrowRight') { if (clickMarker) moveMarker(+1); else navigate(+1); return; }
+    if (e.key === 'ArrowLeft')  { if (clickMarker) moveMarker(-1); else navigate(-1); return; }
+    if (e.key === 'd') navigate(+1);
+    if (e.key === 'a') navigate(-1);
+}
+
+// ── Eventos UI ────────────────────────────────────────────────────────────────
+function setupEvents() {
+    document.getElementById('folder-select').onchange = function() {
+        if (this.value) loadFiles(this.value);
+    };
+    document.getElementById('btn-prev').onclick = function() { navigate(-1); };
+    document.getElementById('btn-next').onclick = function() { navigate(+1); };
+
+    document.getElementById('btn-lambda-apply').onclick = function() {
+        var mn = parseFloat(document.getElementById('lambda-min').value);
+        var mx = parseFloat(document.getElementById('lambda-max').value);
+        if (!isNaN(mn) && !isNaN(mx) && mn < mx) { plotLambdaMin=mn; plotLambdaMax=mx; drawPlot(); }
+    };
+    document.getElementById('btn-lambda-reset').onclick = function() {
+        plotLambdaMin = plotLambdaMax = null; drawPlot();
+    };
+    document.getElementById('btn-counts-apply').onclick = function() {
+        var mn = parseFloat(document.getElementById('counts-min').value);
+        var mx = parseFloat(document.getElementById('counts-max').value);
+        if (!isNaN(mn) && !isNaN(mx) && mn < mx) { plotCountsMin=mn; plotCountsMax=mx; drawPlot(); }
+    };
+    document.getElementById('btn-counts-reset').onclick = function() {
+        plotCountsMin = plotCountsMax = null; drawPlot();
+    };
+    document.getElementById('correction-toggle').onchange = function() {
+        correctionOn = this.checked; drawPlot();
+    };
+
+    canvas.style.cursor = 'crosshair';
+    canvas.addEventListener('mousedown', onCanvasMouseDown);
+    canvas.addEventListener('mousemove', onCanvasMouseMove);
+    window.addEventListener('mouseup', onCanvasMouseUp);
+    canvas.addEventListener('mouseleave', onCanvasMouseLeave);
+    canvas.addEventListener('dblclick', onCanvasDblClick);
+}
+
+// ── Interacción: crosshair + arrastre para zoom + click para identificar ──
+function getCanvasPos(e) {
+    var rect = canvas.getBoundingClientRect();
+    return {
+        x: (e.clientX - rect.left) * (canvas.width  / rect.width),
+        y: (e.clientY - rect.top)  * (canvas.height / rect.height),
+    };
+}
+
+var hoverRAF = null;
+function scheduleRedraw() {
+    if (hoverRAF) return;
+    hoverRAF = requestAnimationFrame(function() { hoverRAF = null; drawPlot(); });
+}
+
+function onCanvasMouseDown(e) {
+    var p = getCanvasPos(e);
+    isDragging  = true;
+    dragStart   = p;
+    dragCurrent = p;
+}
+
+function onCanvasMouseMove(e) {
+    var p = getCanvasPos(e);
+    if (isDragging) {
+        dragCurrent = p;
+        scheduleRedraw();
+    } else {
+        updateHover(p);
+    }
+}
+
+function onCanvasMouseUp(e) {
+    if (!isDragging) return;
+    isDragging = false;
+    var p = getCanvasPos(e);
+    var dx = Math.abs(p.x - dragStart.x), dy = Math.abs(p.y - dragStart.y);
+    if (dx < 6 && dy < 6) {
+        identifyCurveAt(dragStart);
+    } else {
+        dragCurrent = p;
+        applyZoomFromDrag();
+        drawPlot();
+    }
+    dragStart = null; dragCurrent = null;
+}
+
+function onCanvasMouseLeave() {
+    if (isDragging) return;
+    hoverPoint = null;
+    drawPlot();
+}
+
+function onCanvasDblClick() {
+    plotLambdaMin = plotLambdaMax = plotCountsMin = plotCountsMax = null;
+    document.getElementById('lambda-min').value = '';
+    document.getElementById('lambda-max').value = '';
+    document.getElementById('counts-min').value = '';
+    document.getElementById('counts-max').value = '';
+    drawPlot();
+}
+
+function updateHover(p) {
+    if (!lastLayout) return;
+    var L = lastLayout;
+    if (p.x < L.mg.left || p.x > L.mg.left+L.pw || p.y < L.mg.top || p.y > L.mg.top+L.ph) {
+        if (hoverPoint) { hoverPoint = null; scheduleRedraw(); }
+        return;
+    }
+    hoverPoint = { x: p.x, wl: L.minX + (p.x - L.mg.left) / L.pw * L.rX };
+    scheduleRedraw();
+}
+
+function applyZoomFromDrag() {
+    if (!lastLayout || !dragStart || !dragCurrent) return;
+    var L = lastLayout;
+    var x1 = Math.max(Math.min(dragStart.x, dragCurrent.x), L.mg.left);
+    var x2 = Math.min(Math.max(dragStart.x, dragCurrent.x), L.mg.left+L.pw);
+    var y1 = Math.max(Math.min(dragStart.y, dragCurrent.y), L.mg.top);
+    var y2 = Math.min(Math.max(dragStart.y, dragCurrent.y), L.mg.top+L.ph);
+    if (x2-x1 < 4 || y2-y1 < 4) return;
+
+    var wlLo = L.minX + (x1 - L.mg.left) / L.pw * L.rX;
+    var wlHi = L.minX + (x2 - L.mg.left) / L.pw * L.rX;
+    var cHi  = L.minY + (L.mg.top + L.ph - y1) / L.ph * L.rY;
+    var cLo  = L.minY + (L.mg.top + L.ph - y2) / L.ph * L.rY;
+
+    plotLambdaMin = wlLo; plotLambdaMax = wlHi;
+    plotCountsMin = cLo;  plotCountsMax = cHi;
+
+    document.getElementById('lambda-min').value = wlLo.toFixed(1);
+    document.getElementById('lambda-max').value = wlHi.toFixed(1);
+    document.getElementById('counts-min').value = Math.round(cLo);
+    document.getElementById('counts-max').value = Math.round(cHi);
+
+    // Si había un punto seleccionado, lo conserva solo si sigue dentro de la
+    // nueva ventana de zoom; si no, lo borra.
+    if (clickMarker && currentData) {
+        var mWl = currentData.wavelengths[clickMarker.idx];
+        if (mWl < wlLo || mWl > wlHi) clickMarker = null;
+    }
+}
+
+// ── Identificar ángulo en un punto del canvas ───────────────────────────────
+function identifyCurveAt(p) {
+    if (!lastLayout) return;
+    var L = lastLayout;
+    var mx = p.x, my = p.y;
+
+    if (mx < L.mg.left || mx > L.mg.left+L.pw || my < L.mg.top || my > L.mg.top+L.ph) {
+        clickMarker = null; return;
+    }
+
+    var wlClick = L.minX + (mx - L.mg.left) / L.pw * L.rX;
+    var idx = 0, bestD = Infinity;
+    for (var i = 0; i < L.wl.length; i++) {
+        var d = Math.abs(L.wl[i] - wlClick);
+        if (d < bestD) { bestD = d; idx = i; }
+    }
+
+    var bestAng = null, bestAngDist = Infinity, bestAi = 0;
+    L.angles.forEach(function(ang, ai) {
+        var val = L.sp[ang][idx];
+        var py  = L.mg.top + L.ph - (val - L.minY) / L.rY * L.ph;
+        var dist = Math.abs(py - my);
+        if (dist < bestAngDist) { bestAngDist = dist; bestAng = ang; bestAi = ai; }
+    });
+
+    if (bestAng === null || bestAngDist > 30) { clickMarker = null; return; }
+
+    clickMarker = { ang: bestAng, idx: idx, color: SCAN_COLORS[bestAi % SCAN_COLORS.length] };
+}
+
+// ── Mover el punto seleccionado a lo largo de la curva con las flechas ────
+function moveMarker(delta) {
+    if (!clickMarker || !currentData) return;
+    var wl = currentData.wavelengths;
+    var lo = 0, hi = wl.length - 1;
+    if (plotLambdaMin !== null) { while (lo <= hi && wl[lo] < plotLambdaMin) lo++; }
+    if (plotLambdaMax !== null) { while (hi >= lo && wl[hi] > plotLambdaMax) hi--; }
+    if (lo > hi) return;   // ventana visible vacía
+    var newIdx = clickMarker.idx + delta;
+    if (newIdx < lo) newIdx = lo;
+    if (newIdx > hi) newIdx = hi;
+    clickMarker.idx = newIdx;
+    drawPlot();
+}
+</script>
+</body>
+</html>
