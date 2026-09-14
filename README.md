@@ -165,6 +165,16 @@ From another PC on the same network: `http://<host-IP>:8000`.
    `/data/<date>/`.
 6. **View saved spectra** opens a viewer to inspect the saved `.txt` files.
 
+**Control panel** — parameters, acquisition/recording controls, live plot
+and backend log panel, all on one page:
+
+![Control panel](docs/screenshot-control.png)
+
+**Saved-spectra viewer** — browse, overlay and inspect (or delete) previously
+saved files, with metadata and λ/counts range controls:
+
+![Spectra viewer](docs/screenshot-viewer.png)
+
 ### View logs
 
 ```bash
